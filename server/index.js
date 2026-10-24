@@ -3,6 +3,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 require('dotenv').config();
 
+const Producto = require('./models/Product');
 const app = express();
 
 // Middlewares
@@ -22,5 +23,15 @@ mongoose.connect(MONGO_URI)
   .then(() => {
     console.log('✅ Conectado a MongoDB');
     app.listen(PORT, () => console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`));
+    return Producto.create({
+        nombre: '  ', 
+        descripcion: "Pizza de Peperoni", 
+        precio: 239, 
+        categoria: "Mini pizzas",  }); 
   })
-  .catch((err) => console.error('❌ Error conectando a MongoDB:', err));
+  .then((productoGuardado) => {
+    console.log('Guardado:', productoGuardado);          // recibe el documento creado
+  })
+  .catch((err) => console.error('❌ ERROR:', err));
+
+  
