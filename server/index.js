@@ -3,24 +3,28 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+
 const orderRoutes = require('./routes/orderRoutes');
+const storeRoutes = require('./routes/store.routes');
+const kitchenRoutes = require('./routes/kitchen.routes');
+const orderReportsRoutes = require('./routes/orderReports.routes');
 
 const app = express();
 
 // Middlewares
 app.use(cors());
 app.use(express.json());
-app.use('/api/orders', orderRoutes);
 
 // Ruta de prueba
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'API Pizzería funcionando correctamente 🍕' });
 });
 
-// Rutas de la API (Tienda, Cocina y Reportes)
-app.use('/api/store', require('./routes/store.routes'));
-app.use('/api/kitchen', require('./routes/kitchen.routes'));
-app.use('/api/orders', require('./routes/orderReports.routes'));
+// Rutas de la API (Pedidos, Reportes, Tienda y Cocina)
+app.use('/api/orders', orderRoutes);
+app.use('/api/orders', orderReportsRoutes);
+app.use('/api/store', storeRoutes);
+app.use('/api/kitchen', kitchenRoutes);
 
 // Conexión a Base de Datos y arranque del servidor
 const PORT = process.env.PORT || 5000;
