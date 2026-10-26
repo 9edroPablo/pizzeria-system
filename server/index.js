@@ -14,6 +14,11 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'API Pizzería funcionando correctamente 🍕' });
 });
 
+// Rutas de la API (Tienda, Cocina y Reportes)
+app.use('/api/store', require('./routes/store.routes'));
+app.use('/api/kitchen', require('./routes/kitchen.routes'));
+app.use('/api/orders', require('./routes/orderReports.routes'));
+
 // Conexión a Base de Datos y arranque del servidor
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/pizzeria_db';
