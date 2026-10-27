@@ -1,27 +1,43 @@
-import { IconHome, IconOven, IconReceipt, IconUser } from './icons.jsx'
+import { NavLink } from 'react-router-dom'
+import { IconHome, IconMapPin, IconReceipt, IconUser } from './icons.jsx'
 
 const ITEMS = [
-  { label: 'Menú', Icon: IconHome, active: true },
-  { label: 'Forno', Icon: IconOven, active: false },
-  { label: 'Pedidos', Icon: IconReceipt, active: false },
-  { label: 'Perfil', Icon: IconUser, active: false },
+  { to: '/menu', label: 'Menú', Icon: IconHome },
+  { to: '/seguimiento', label: 'Pedidos', Icon: IconReceipt },
+  { to: '/ubicacion', label: 'Ubicación', Icon: IconMapPin },
+  { to: '/cuenta', label: 'Cuenta', Icon: IconUser },
 ]
 
 export default function BottomNav() {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-paper md:hidden">
+    <nav
+      aria-label="Navegación móvil"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-paper/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden print:hidden"
+    >
       <ul className="grid grid-cols-4">
-        {ITEMS.map(({ label, Icon, active }) => (
-          <li key={label}>
-            <button
-              type="button"
-              className={`flex w-full flex-col items-center gap-1 py-3 text-[10px] font-semibold ${
-                active ? 'text-brand' : 'text-muted'
-              }`}
+        {ITEMS.map(({ to, label, Icon }) => (
+          <li key={to}>
+            <NavLink
+              to={to}
+              className={({ isActive }) =>
+                `flex flex-col items-center gap-1 py-2.5 text-[10px] font-bold transition ${
+                  isActive ? 'text-brand' : 'text-muted hover:text-ink'
+                }`
+              }
             >
-              <Icon className="h-5 w-5" />
-              {label}
-            </button>
+              {({ isActive }) => (
+                <>
+                  <span
+                    className={`flex h-7 w-12 items-center justify-center rounded-full transition ${
+                      isActive ? 'bg-brand-soft' : ''
+                    }`}
+                  >
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  {label}
+                </>
+              )}
+            </NavLink>
           </li>
         ))}
       </ul>

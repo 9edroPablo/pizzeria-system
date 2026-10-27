@@ -1,5 +1,6 @@
-// Ilustración de pizza generada con SVG para no depender de fotos
-// externas mientras se exportan los assets del Figma.
+// Ilustración de pizza generada con SVG para no depender de fotos externas.
+// Si la API entrega una imagen, se usa y se cae al SVG si no carga.
+import { useState } from 'react'
 
 const CRUST = '#e9bd6d'
 const CRUST_DARK = '#d9a24a'
@@ -55,13 +56,32 @@ const TOPPINGS = {
   ],
 }
 
-export default function PizzaImage({ topping = 'pepperoni', className = '' }) {
+export default function PizzaImage({
+  topping = 'pepperoni',
+  src,
+  alt = 'Pizza artesanal',
+  className = '',
+}) {
+  const [failed, setFailed] = useState(false)
+
+  if (src && !failed) {
+    return (
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className={`${className} object-cover`}
+      />
+    )
+  }
+
   return (
     <svg
       viewBox="0 0 200 200"
       className={className}
       role="img"
-      aria-hidden="true"
+      aria-label={alt}
       preserveAspectRatio="xMidYMid slice"
     >
       <circle cx="100" cy="100" r="92" fill={CRUST} />

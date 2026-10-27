@@ -264,3 +264,204 @@ export function IconCheck({ className = 'h-5 w-5' }) {
     </svg>
   )
 }
+
+function IconBase({ className = 'h-5 w-5', children }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  )
+}
+
+export function IconMapPin({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M12 21s7-6.1 7-11a7 7 0 1 0-14 0c0 4.9 7 11 7 11Z" />
+      <circle cx="12" cy="10" r="2.5" />
+    </IconBase>
+  )
+}
+
+export function IconClock({ className }) {
+  return (
+    <IconBase className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </IconBase>
+  )
+}
+
+export function IconPhone({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M7 3H4.8A1.8 1.8 0 0 0 3 4.8C3 13 11 21 19.2 21a1.8 1.8 0 0 0 1.8-1.8V17l-5-1.8-1.6 1.6a15.7 15.7 0 0 1-6.2-6.2L10 9 8.2 4 7 3Z" />
+    </IconBase>
+  )
+}
+
+export function IconMail({ className }) {
+  return (
+    <IconBase className={className}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3 7 9 6 9-6" />
+    </IconBase>
+  )
+}
+
+export function IconCreditCard({ className }) {
+  return (
+    <IconBase className={className}>
+      <rect x="2.5" y="5" width="19" height="14" rx="2" />
+      <path d="M2.5 10h19m-14 5h4" />
+    </IconBase>
+  )
+}
+
+export function IconWallet({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M4 6h13a2 2 0 0 1 2 2v1H4a2 2 0 0 1 0-4h12" />
+      <path d="M4 8h15a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a2 2 0 0 1 1-2" />
+      <circle cx="17" cy="13.5" r="1" fill="currentColor" stroke="none" />
+    </IconBase>
+  )
+}
+
+export function IconChevronRight({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="m9 6 6 6-6 6" />
+    </IconBase>
+  )
+}
+
+export function IconChevronDown({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="m6 9 6 6 6-6" />
+    </IconBase>
+  )
+}
+
+export function IconSearch({ className }) {
+  return (
+    <IconBase className={className}>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m15.5 15.5 4 4" />
+    </IconBase>
+  )
+}
+
+export function IconInfo({ className }) {
+  return (
+    <IconBase className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5m0-8h.01" />
+    </IconBase>
+  )
+}
+
+export function IconAlert({ className }) {
+  return (
+    <IconBase className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v6m0 3h.01" />
+    </IconBase>
+  )
+}
+
+export function IconArrowRight({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M5 12h14m0 0-6-6m6 6-6 6" />
+    </IconBase>
+  )
+}
+
+export function IconBag({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M5 8h14l1 13H4L5 8Z" />
+      <path d="M9 9V6a3 3 0 0 1 6 0v3" />
+    </IconBase>
+  )
+}
+
+export function IconNavigation({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="m3 11 18-8-8 18-2.5-7.5L3 11Z" />
+    </IconBase>
+  )
+}
+
+export function IconCalendar({ className }) {
+  return (
+    <IconBase className={className}>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M8 3v4m8-4v4M3 10h18" />
+    </IconBase>
+  )
+}
+
+export function IconShieldCheck({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M12 3 5 6v5c0 4.5 3 8.2 7 10 4-1.8 7-5.5 7-10V6l-7-3Z" />
+      <path d="m9 12 2 2 4-4" />
+    </IconBase>
+  )
+}
+
+export function IconDownload({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />
+    </IconBase>
+  )
+}
+
+export function IconExternalLink({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M14 4h6v6m0-6-9 9" />
+      <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+    </IconBase>
+  )
+}
+
+export function IconRefresh({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M20 7v5h-5M4 17v-5h5" />
+      <path d="M6.1 8.3A7 7 0 0 1 19 10m-1.1 5.7A7 7 0 0 1 5 14" />
+    </IconBase>
+  )
+}
+
+export function IconInstagram({ className }) {
+  return (
+    <IconBase className={className}>
+      <rect x="3" y="3" width="18" height="18" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <path d="M17.5 6.5h.01" />
+    </IconBase>
+  )
+}
+
+export function IconFacebook({ className }) {
+  return (
+    <IconBase className={className}>
+      <path d="M14 8h3V4h-3a5 5 0 0 0-5 5v3H6v4h3v5h4v-5h3l1-4h-4V9a1 1 0 0 1 1-1Z" />
+    </IconBase>
+  )
+}

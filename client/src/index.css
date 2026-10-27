@@ -26,3 +26,13 @@ body {
 ::selection {
   @apply bg-brand text-white;
 }
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  body {
+    background: #fff;
+  }
+}
