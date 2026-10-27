@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 
-const CATEGORIAS = ['pizzas', 'entradas', 'bebidas', 'postres', 'complementos'];
+const CATEGORIAS = ['PIZZA', 'BEBIDA', 'COMPLEMENTO'];
 
-const productSchema = new mongoose.Schema(
+const productoSchema = new mongoose.Schema(
   {
     nombre: {
       type: String,
@@ -26,25 +26,29 @@ const productSchema = new mongoose.Schema(
     categoria: {
       type: String,
       required: [true, 'La categoría es obligatoria'],
-      enum: { values: CATEGORIAS, message: 'Categoría no válida: {VALUE}' },
-      lowercase: true,
+      uppercase: true, 
       trim: true,
+      enum: {
+        values: CATEGORIAS,
+        message: '{VALUE} no es una categoría válida.',
+      },
     },
+    imagen_url: { type: String, trim: true, default: '' },
     disponible: { type: Boolean, default: true },
-    imagen: { type: String, trim: true }, // URL opcional
   },
   { timestamps: true }
 );
 
-// Acelera el listado del menú filtrado por categoría y disponibilidad
-productSchema.index({ categoria: 1, disponible: 1 });
+productoSchema.index({ categoria: 1, disponible: 1 });
 
-productSchema.set('toJSON', {
+productoSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.__v;
     return ret;
   },
 });
 
-module.exports = mongoose.model('Product', productSchema);
+const Producto = mongoose.model('Producto', productoSchema);
+
+module.exports = Producto;
 module.exports.CATEGORIAS = CATEGORIAS;
