@@ -1,7 +1,13 @@
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+
+const orderRoutes = require('./routes/orderRoutes');
+const storeRoutes = require('./routes/store.routes');
+const kitchenRoutes = require('./routes/kitchen.routes');
+const orderReportsRoutes = require('./routes/orderReports.routes');
 
 const app = express();
 
@@ -13,6 +19,12 @@ app.use(express.json());
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'API Pizzería funcionando correctamente 🍕' });
 });
+
+// Rutas de la API (Pedidos, Reportes, Tienda y Cocina)
+app.use('/api/orders', orderRoutes);
+app.use('/api/orders', orderReportsRoutes);
+app.use('/api/store', storeRoutes);
+app.use('/api/kitchen', kitchenRoutes);
 
 // Conexión a Base de Datos y arranque del servidor
 const PORT = process.env.PORT || 5000;
