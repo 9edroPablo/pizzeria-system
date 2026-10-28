@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
-import OperativoHeader from '../components/operativo/OperativoHeader.jsx'
-import { PaymentBadge, StatusBadge } from '../components/operativo/StatusBadge.jsx'
-import { folio } from '../components/operativo/utils.js'
+import OperativoLayout, { Aviso, StatCard } from '../components/operativo/OperativoLayout.jsx'
+import { StatusBadge } from '../components/operativo/StatusBadge.jsx'
+import { IconCash } from '../components/operativo/icons.jsx'
+import { folio, formatMoney, nombreCliente } from '../components/operativo/utils.js'
+import { IconCheck, IconClock, IconSearch } from '../components/icons.jsx'
 import { ORDER_STATUS } from '../context/orderStatus.js'
 import { useToast } from '../context/ToastContext.jsx'
 import { usePolling } from '../hooks/usePolling.js'
-import { formatPrice, formatTime } from '../services/format.js'
+import { formatTime } from '../services/format.js'
 import { getErrorMessage } from '../services/http.js'
 import {
   getActiveOrders,
@@ -13,29 +15,14 @@ import {
   updateOrderStatus,
 } from '../services/operativoService.js'
 
-const FILTROS = [
-  { id: 'todos', label: 'Todos' },
-  { id: 'cobrar', label: 'Por cobrar' },
-  { id: 'entregar', label: 'Listos para entregar' },
-  { id: 'cocina', label: 'En cocina' },
-]
+const esListo = (p) => p.estado === ORDER_STATUS.LISTO
+const porCobrar = (p) => !p.pagado
 
-function aplicarFiltro(pedidos, filtro) {
-  switch (filtro) {
-    case 'cobrar':
-      return pedidos.filter((p) => !p.pagado)
-    case 'entregar':
-      return pedidos.filter((p) => p.estado === ORDER_STATUS.LISTO)
-    case 'cocina':
-      return pedidos.filter(
-        (p) =>
-          p.estado === ORDER_STATUS.PENDIENTE ||
-          p.estado === ORDER_STATUS.EN_PREPARACION,
-      )
-    default:
-      return pedidos
-  }
-}
+const FILTROS = [
+  { id: 'todos', label: 'Todos', test: () => true },
+  { id: 'listos', label: 'Listos', test: esListo },
+  { id: 'cobrar', label: 'Por cobrar', test: porCobrar },
+]
 
 export default function Mostrador() {
   const { data: pedidos, loading, error, lastUpdate, refresh } = usePolling(
@@ -44,20 +31,41 @@ export default function Mostrador() {
   )
   const { notify } = useToast()
   const [filtro, setFiltro] = useState('todos')
-  // Guarda el id del pedido cuyo botón está procesando, para deshabilitarlo.
+  const [busqueda, setBusqueda] = useState('')
+  // Id del pedido cuyo botón se está procesando, para deshabilitarlo.
   const [procesando, setProcesando] = useState(null)
 
-  const visibles = useMemo(() => aplicarFiltro(pedidos, filtro), [pedidos, filtro])
+  const resumen = useMemo(() => {
+    const pendientes = pedidos.filter(porCobrar)
+    return {
+      activos: pedidos.length,
+      listos: pedidos.filter(esListo).length,
+      porCobrar: pendientes.length,
+      montoPorCobrar: pendientes.reduce((sum, p) => sum + (Number(p.total) || 0), 0),
+    }
+  }, [pedidos])
 
-  const conteo = useMemo(
-    () => ({
-      todos: pedidos.length,
-      cobrar: aplicarFiltro(pedidos, 'cobrar').length,
-      entregar: aplicarFiltro(pedidos, 'entregar').length,
-      cocina: aplicarFiltro(pedidos, 'cocina').length,
-    }),
-    [pedidos],
-  )
+  const visibles = useMemo(() => {
+    const { test } = FILTROS.find((f) => f.id === filtro)
+    const texto = busqueda.trim().toLowerCase()
+    return pedidos
+      .filter(test)
+      .filter((p) => {
+        if (!texto) return true
+        return (
+          folio(p).toLowerCase().includes(texto) ||
+          nombreCliente(p).toLowerCase().includes(texto)
+        )
+      })
+      // Como en el diseño: primero los pedidos más antiguos.
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+  }, [pedidos, filtro, busqueda])
+
+  const conteo = {
+    todos: resumen.activos,
+    listos: resumen.listos,
+    cobrar: resumen.porCobrar,
+  }
 
   async function ejecutar(pedido, accion, mensajeExito) {
     setProcesando(pedido._id)
@@ -72,14 +80,14 @@ export default function Mostrador() {
     }
   }
 
-  const registrarCobro = (pedido) =>
+  const cobrar = (pedido) =>
     ejecutar(
       pedido,
       () => markOrderAsPaid(pedido._id),
-      `Cobro registrado: ${folio(pedido)} por ${formatPrice(pedido.total)}`,
+      `Cobro registrado: ${folio(pedido)} por ${formatMoney(pedido.total)}`,
     )
 
-  const confirmarEntrega = (pedido) =>
+  const entregar = (pedido) =>
     ejecutar(
       pedido,
       () => updateOrderStatus(pedido._id, ORDER_STATUS.ENTREGADO),
@@ -87,44 +95,55 @@ export default function Mostrador() {
     )
 
   return (
-    <div className="min-h-svh bg-cream">
-      <OperativoHeader
-        titulo="Mostrador"
-        subtitulo="Pedidos activos en sucursal"
-        lastUpdate={lastUpdate}
-        onRefresh={refresh}
-        otraPantalla={{ to: '/cocina', label: 'Ir a Cocina' }}
-      />
+    <OperativoLayout
+      titulo="Mostrador"
+      descripcion="Gestiona el cobro y la entrega de los pedidos activos en sucursal."
+      lastUpdate={lastUpdate}
+    >
+      <div className="grid gap-3 sm:grid-cols-3">
+        <StatCard valor={resumen.activos} etiqueta="Pedidos activos" />
+        <StatCard valor={resumen.listos} etiqueta="Listos para recoger" />
+        <StatCard
+          valor={resumen.porCobrar}
+          etiqueta={`Pendientes de pago · ${formatMoney(resumen.montoPorCobrar)}`}
+        />
+      </div>
 
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-        <div className="mb-5 flex flex-wrap gap-2">
-          {FILTROS.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setFiltro(f.id)}
-              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                filtro === f.id
-                  ? 'bg-ink text-white'
-                  : 'border border-line bg-paper text-ink-soft hover:border-ink/30'
-              }`}
-            >
-              {f.label}
-              <span className="ml-2 opacity-70">{conteo[f.id]}</span>
-            </button>
-          ))}
-        </div>
+      <label className="mt-5 flex w-full max-w-xs items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+        <IconSearch className="h-4 w-4 text-ink-soft" />
+        <input
+          type="search"
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Número de pedido o cliente"
+          className="w-full bg-transparent text-sm outline-none placeholder:text-ink-soft"
+        />
+      </label>
 
-        {error && (
-          <p className="mb-5 rounded-xl border border-brand/20 bg-brand-soft px-4 py-3 text-sm font-semibold text-brand">
-            {error}
-          </p>
-        )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {FILTROS.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => setFiltro(f.id)}
+            className={`rounded-md px-3 py-2 text-xs font-semibold transition ${
+              filtro === f.id
+                ? 'bg-gray-900 text-white'
+                : 'border border-gray-200 bg-white text-ink hover:bg-gray-50'
+            }`}
+          >
+            {f.label} · {conteo[f.id]}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4">
+        {error && <Aviso>{error}</Aviso>}
 
         {loading ? (
-          <p className="py-16 text-center text-muted">Cargando pedidos…</p>
+          <p className="py-16 text-center text-sm text-ink-soft">Cargando pedidos…</p>
         ) : visibles.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-line bg-paper py-16 text-center text-muted">
+          <p className="rounded-xl bg-white py-16 text-center text-sm text-ink-soft">
             No hay pedidos en esta vista.
           </p>
         ) : (
@@ -134,78 +153,89 @@ export default function Mostrador() {
                 key={pedido._id}
                 pedido={pedido}
                 ocupado={procesando === pedido._id}
-                onCobrar={() => registrarCobro(pedido)}
-                onEntregar={() => confirmarEntrega(pedido)}
+                onCobrar={() => cobrar(pedido)}
+                onEntregar={() => entregar(pedido)}
               />
             ))}
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </OperativoLayout>
   )
 }
 
-function TarjetaMostrador({ pedido, ocupado, onCobrar, onEntregar }) {
-  const listo = pedido.estado === ORDER_STATUS.LISTO
-  // Solo se entrega si ya está listo en cocina y ya está pagado.
-  const puedeEntregar = listo && pedido.pagado
+const BOTON = 'flex w-full items-center justify-center gap-2 rounded-md px-4 py-3 text-sm font-semibold transition'
 
-  let ayudaEntrega = ''
-  if (!listo) ayudaEntrega = 'Se habilita cuando cocina lo marque como listo.'
-  else if (!pedido.pagado) ayudaEntrega = 'Registra el cobro antes de entregar.'
+function TarjetaMostrador({ pedido, ocupado, onCobrar, onEntregar }) {
+  // Un solo botón por tarjeta, como en el diseño:
+  // 1) si no está pagado -> Cobrar pedido
+  // 2) si está pagado y LISTO -> Confirmar entrega
+  // 3) si está pagado pero sigue en cocina -> Esperando a cocina (deshabilitado)
+  let boton
+  if (!pedido.pagado) {
+    boton = (
+      <button
+        type="button"
+        onClick={onCobrar}
+        disabled={ocupado}
+        className={`${BOTON} bg-red-600 text-white hover:bg-red-700 disabled:opacity-60`}
+      >
+        <IconCash className="h-4 w-4" />
+        {ocupado ? 'Procesando…' : 'Cobrar pedido'}
+      </button>
+    )
+  } else if (esListo(pedido)) {
+    boton = (
+      <button
+        type="button"
+        onClick={onEntregar}
+        disabled={ocupado}
+        className={`${BOTON} bg-red-600 text-white hover:bg-red-700 disabled:opacity-60`}
+      >
+        <IconCheck className="h-4 w-4" />
+        {ocupado ? 'Procesando…' : 'Confirmar Entrega'}
+      </button>
+    )
+  } else {
+    boton = (
+      <button type="button" disabled className={`${BOTON} cursor-default bg-gray-100 text-ink-soft`}>
+        <IconClock className="h-4 w-4" />
+        Esperando a cocina
+      </button>
+    )
+  }
 
   return (
-    <article
-      className={`flex flex-col rounded-2xl border bg-paper p-5 shadow-sm ${
-        listo ? 'border-open/40' : 'border-line'
-      }`}
-    >
+    <article className="flex flex-col rounded-xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-2xl font-extrabold text-ink">{folio(pedido)}</p>
-          <p className="text-xs text-muted">
-            {formatTime(pedido.createdAt)} · {pedido.cliente_correo}
-          </p>
-        </div>
+        <p className="text-2xl font-bold">{folio(pedido)}</p>
         <StatusBadge estado={pedido.estado} />
       </div>
 
-      <ul className="my-4 space-y-1 border-y border-line py-3 text-sm">
+      <p className="mt-2 truncate text-sm font-semibold">{nombreCliente(pedido)}</p>
+      <p className="mt-1 text-xs text-[#7a4a3a]">
+        Recogida en sucursal · {formatTime(pedido.createdAt)}
+      </p>
+
+      <ul className="mt-2 space-y-0.5 text-sm">
         {pedido.items?.map((item, i) => (
-          <li key={i} className="flex justify-between gap-3">
-            <span className="text-ink-soft">
-              {item.cantidad} × {item.nombre}
-            </span>
-            <span className="text-muted">{formatPrice(item.precio * item.cantidad)}</span>
+          <li key={i}>
+            {item.cantidad} × {item.nombre}
           </li>
         ))}
       </ul>
 
-      <div className="mb-4 flex items-center justify-between">
-        <PaymentBadge pagado={pedido.pagado} metodoPago={pedido.metodo_pago} />
-        <span className="text-lg font-extrabold text-ink">{formatPrice(pedido.total)}</span>
-      </div>
-
-      <div className="mt-auto space-y-2">
-        {!pedido.pagado && (
-          <button
-            type="button"
-            onClick={onCobrar}
-            disabled={ocupado}
-            className="w-full rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-50"
-          >
-            {ocupado ? 'Procesando…' : `Registrar cobro · ${formatPrice(pedido.total)}`}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onEntregar}
-          disabled={!puedeEntregar || ocupado}
-          className="w-full rounded-xl bg-open px-4 py-3 text-sm font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-wash disabled:text-muted"
-        >
-          Confirmar entrega
-        </button>
-        {ayudaEntrega && <p className="text-center text-xs text-muted">{ayudaEntrega}</p>}
+      <div className="mt-auto pt-4">
+        <div className="flex items-end justify-between border-t border-gray-200 pt-3">
+          <div>
+            <p className="text-xs text-[#7a4a3a]">
+              Pago · {pedido.metodo_pago === 'ANTICIPADO' ? 'En línea' : 'En tienda'}
+            </p>
+            <p className="text-sm font-semibold">{pedido.pagado ? 'Pagado' : 'Pendiente de pago'}</p>
+          </div>
+          <p className="text-xl font-bold">{formatMoney(pedido.total)}</p>
+        </div>
+        <div className="mt-3">{boton}</div>
       </div>
     </article>
   )
