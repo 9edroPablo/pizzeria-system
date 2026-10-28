@@ -46,7 +46,7 @@ export default function Hero({ total = 0 }) {
             {abierta && !loading && (
               <span className="inline-flex items-center gap-2 rounded-full border border-line bg-paper px-3.5 py-2 text-xs font-bold text-ink-soft">
                 <IconClock className="h-3.5 w-3.5 text-brand" />
-                Listo en {tiempoEspera ?? '25–35 min'}
+                Listo en {tiempoEspera ?? 'unos minutos'}
               </span>
             )}
 

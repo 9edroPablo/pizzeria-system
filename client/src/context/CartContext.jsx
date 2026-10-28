@@ -89,6 +89,7 @@ export function CartProvider({ children }) {
             tamano: pizza.tamano,
             precio: Number(pizza.precio) || 0,
             topping: pizza.topping,
+            imagen: pizza.imagen ?? '',
             cantidad: 1,
           },
         ]

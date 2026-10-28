@@ -1,5 +1,5 @@
 import { STORE, STORE_HOURS } from '../data/store.js'
-import { apiFetch } from './api.js'
+import http from './http.js'
 import { IS_MOCK } from './dataSource.js'
 
 const CLOSED_OVERRIDE_KEY = 'forno:tienda-cerrada'
@@ -44,17 +44,20 @@ function mockStatus() {
 }
 
 function normalizeApiStatus(payload) {
+  // GET /api/store/status -> { tienda_abierta, ubicacion }.
+  // Fail-closed: solo consideramos abierta cuando el backend lo confirma.
+  const abierta = payload?.tienda_abierta === true
+
   return {
-    abierta: Boolean(payload?.tienda_abierta ?? payload?.abierta ?? true),
-    tiempoEspera:
-      payload?.tiempo_espera ?? payload?.tiempoEspera ?? STORE.tiempoEspera,
-    mensaje:
-      payload?.mensaje ??
-      'El estado de la tienda se actualiza directamente desde el servidor.',
+    abierta,
+    tiempoEspera: null,
+    mensaje: abierta
+      ? 'El horno está encendido. Tu pedido se prepara al momento.'
+      : 'La pizzería está cerrada en este momento. Vuelve en nuestro próximo horario.',
     horario: STORE_HOURS,
     tienda: {
       ...STORE,
-      direccion: payload?.ubicacion ?? STORE.direccion,
+      ubicacion: payload?.ubicacion ?? '',
     },
     origen: 'api',
   }
@@ -66,6 +69,6 @@ export async function getStoreStatus({ signal } = {}) {
     return mockStatus()
   }
 
-  const payload = await apiFetch('/store/status', { signal })
-  return normalizeApiStatus(payload)
+  const { data } = await http.get('/store/status', { signal })
+  return normalizeApiStatus(data)
 }

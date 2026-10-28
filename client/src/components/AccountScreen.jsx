@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useCart } from '../context/CartContext.jsx'
 import { useStore } from '../context/StoreContext.jsx'
@@ -10,8 +10,16 @@ import {
 } from '../context/orderStatus.js'
 import { DEMO_USER } from '../data/demoUser.js'
 import { STORE } from '../data/store.js'
+import { getCustomer } from '../services/customerService.js'
+import { IS_MOCK } from '../services/dataSource.js'
 import { formatPrice, formatRelativeTime } from '../services/format.js'
-import { getOrders, resetLocalOrders } from '../services/orderService.js'
+import {
+  fetchOrderById,
+  getFolio,
+  getOrders,
+  isMongoOrderId,
+  resetLocalOrders,
+} from '../services/orderService.js'
 import PageHeader from './PageHeader.jsx'
 import {
   IconArrowRight,
@@ -39,15 +47,72 @@ export default function AccountScreen() {
   const { clearCart } = useCart()
   const { demoClosed, setDemoClosed } = useStore()
   const { notify } = useToast()
+  const customer = useMemo(() => getCustomer(), [])
   const [orders, setOrders] = useState(() => getOrders())
   const [showAll, setShowAll] = useState(false)
 
-  const firstName = DEMO_USER.nombre.split(' ')[0]
+  const displayName = IS_MOCK
+    ? DEMO_USER.nombre
+    : customer?.nombre?.trim() || 'Cliente'
+  const firstName = displayName.split(/\s+/)[0]
+  const initials = IS_MOCK
+    ? DEMO_USER.iniciales
+    : displayName
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0])
+        .join('')
+        .toUpperCase() || 'CL'
+  const email = IS_MOCK ? DEMO_USER.correo : customer?.correo ?? ''
+  const phone = IS_MOCK ? DEMO_USER.telefono : customer?.telefono ?? ''
   const activeOrder = orders.find((order) => order.estado !== 'ENTREGADO')
   const visibleOrders = showAll ? orders : orders.slice(0, 4)
   const activeProgress = activeOrder
     ? ((getStatusIndex(activeOrder.estado) + 1) / ORDER_FLOW.length) * 100
     : 0
+
+  const favoritePizza = useMemo(() => {
+    const counts = new Map()
+    orders.forEach((order) => {
+      order.items?.forEach((item) => {
+        counts.set(
+          item.nombre,
+          (counts.get(item.nombre) ?? 0) + item.cantidad,
+        )
+      })
+    })
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
+  }, [orders])
+
+  const totalOrders = IS_MOCK ? DEMO_USER.pedidos : orders.length
+  const favorite = IS_MOCK ? DEMO_USER.pizzaFavorita : favoritePizza
+
+  useEffect(() => {
+    if (IS_MOCK) return undefined
+
+    let active = true
+    const refreshOrders = async () => {
+      const pending = getOrders().filter(
+        (order) =>
+          order.estado !== 'ENTREGADO' && isMongoOrderId(order.id),
+      )
+      if (pending.length === 0) return
+
+      await Promise.allSettled(
+        pending.map((order) => fetchOrderById(order.id)),
+      )
+      if (active) setOrders(getOrders())
+    }
+
+    refreshOrders()
+    const interval = window.setInterval(refreshOrders, 15000)
+
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [])
 
   const handleDemoClosed = async () => {
     const next = !demoClosed
@@ -73,7 +138,11 @@ export default function AccountScreen() {
       <PageHeader
         eyebrow="Mi cuenta"
         title={`Hola, ${firstName}`}
-        description="Aquí encontrarás tus pedidos, tu punto de recogida y las herramientas de esta demostración."
+        description={
+          IS_MOCK
+            ? 'Aquí encontrarás tus pedidos, tu punto de recogida y las herramientas de esta demostración.'
+            : 'Aquí encontrarás tus pedidos y tu punto de recogida.'
+        }
         actions={
           <Link
             to="/seguimiento"
@@ -92,44 +161,48 @@ export default function AccountScreen() {
               <div className="bg-ink px-5 pb-5 pt-6 text-white">
                 <div className="flex items-center gap-4">
                   <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-2 border-white/15 bg-brand text-xl font-extrabold">
-                    {DEMO_USER.iniciales}
+                    {initials}
                   </span>
                   <div className="min-w-0">
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-white/70">
-                      Cuenta demo
+                      {IS_MOCK ? 'Cuenta demo' : 'Cliente'}
                     </span>
                     <h2 className="mt-1.5 truncate text-lg font-extrabold">
-                      {DEMO_USER.nombre}
+                      {displayName}
                     </h2>
                   </div>
                 </div>
                 <p className="mt-4 flex items-center gap-2 text-xs text-white/60">
                   <IconCalendar className="h-3.5 w-3.5" />
-                  Cliente desde {DEMO_USER.desde}
+                  {IS_MOCK
+                    ? `Cliente desde ${DEMO_USER.desde}`
+                    : 'Pedidos guardados en este dispositivo'}
                 </p>
               </div>
 
               <div className="space-y-2.5 px-5 py-4">
                 <p className="flex items-center gap-2.5 text-xs text-ink-soft">
                   <IconMail className="h-4 w-4 text-muted" />
-                  {DEMO_USER.correo}
+                  {email || 'Agrega tu correo al hacer un pedido.'}
                 </p>
-                <p className="flex items-center gap-2.5 text-xs text-ink-soft">
-                  <IconPhone className="h-4 w-4 text-muted" />
-                  {DEMO_USER.telefono}
-                </p>
+                {phone && (
+                  <p className="flex items-center gap-2.5 text-xs text-ink-soft">
+                    <IconPhone className="h-4 w-4 text-muted" />
+                    {phone}
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 divide-x divide-line border-t border-line">
                 <div className="px-4 py-4 text-center">
-                  <p className="text-xl font-extrabold text-ink">{DEMO_USER.pedidos}</p>
+                  <p className="text-xl font-extrabold text-ink">{totalOrders}</p>
                   <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-muted">
                     Pedidos
                   </p>
                 </div>
                 <div className="px-4 py-4 text-center">
                   <p className="truncate text-xs font-extrabold text-ink">
-                    {DEMO_USER.pizzaFavorita}
+                    {favorite}
                   </p>
                   <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-muted">
                     Favorita
@@ -184,55 +257,62 @@ export default function AccountScreen() {
               </p>
             </section>
 
-            <section className="rounded-2xl border border-line bg-paper p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-extrabold text-ink">Modo demostración</h2>
-                  <p className="mt-0.5 text-[11px] text-muted">
-                    Fuerza el estado de la tienda.
-                  </p>
+            {IS_MOCK && (
+              <section className="rounded-2xl border border-line bg-paper p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-extrabold text-ink">Modo demostración</h2>
+                    <p className="mt-0.5 text-[11px] text-muted">
+                      Fuerza el estado de la tienda.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={demoClosed}
+                    aria-label="Simular tienda cerrada"
+                    onClick={handleDemoClosed}
+                    className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+                      demoClosed ? 'bg-brand' : 'bg-line'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition ${
+                        demoClosed ? 'left-[22px]' : 'left-0.5'
+                      }`}
+                    />
+                  </button>
                 </div>
+                <p className="mt-3 text-[11px] leading-relaxed text-muted">
+                  {demoClosed
+                    ? 'Ahora la tienda aparece cerrada y el checkout está bloqueado.'
+                    : 'La tienda aparece abierta y se puede completar un pedido.'}
+                </p>
                 <button
                   type="button"
-                  role="switch"
-                  aria-checked={demoClosed}
-                  aria-label="Simular tienda cerrada"
-                  onClick={handleDemoClosed}
-                  className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-                    demoClosed ? 'bg-brand' : 'bg-line'
-                  }`}
+                  onClick={handleReset}
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-line px-4 py-2.5 text-xs font-bold text-ink-soft transition hover:border-ink/25 hover:text-ink"
                 >
-                  <span
-                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition ${
-                      demoClosed ? 'left-[22px]' : 'left-0.5'
-                    }`}
-                  />
+                  <IconRefresh className="h-3.5 w-3.5" />
+                  Restablecer pedidos locales
                 </button>
-              </div>
-              <p className="mt-3 text-[11px] leading-relaxed text-muted">
-                {demoClosed
-                  ? 'Ahora la tienda aparece cerrada y el checkout está bloqueado.'
-                  : 'La tienda aparece abierta y se puede completar un pedido.'}
-              </p>
-              <button
-                type="button"
-                onClick={handleReset}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-line px-4 py-2.5 text-xs font-bold text-ink-soft transition hover:border-ink/25 hover:text-ink"
-              >
-                <IconRefresh className="h-3.5 w-3.5" />
-                Restablecer pedidos locales
-              </button>
-            </section>
+              </section>
+            )}
           </aside>
 
           <div className="space-y-5">
             <div className="flex items-start gap-3 rounded-2xl border border-star/20 bg-star/5 p-4">
               <IconInfo className="mt-0.5 h-5 w-5 shrink-0 text-star" />
               <div>
-                <p className="text-sm font-extrabold text-ink">Estás en una cuenta de demostración</p>
+                <p className="text-sm font-extrabold text-ink">
+                  {IS_MOCK
+                    ? 'Estás en una cuenta de demostración'
+                    : 'Historial de este dispositivo'}
+                </p>
                 <p className="mt-1 text-xs leading-relaxed text-muted">
-                  El registro e inicio de sesión reales llegarán cuando estén listos
-                  los diseños de Figma. Por ahora usamos datos de ejemplo.
+                  {IS_MOCK
+                    ? 'El registro e inicio de sesión reales llegarán cuando estén listos los diseños de Figma. Por ahora usamos datos de ejemplo.'
+                    : 'Aquí aparecen los pedidos creados en este navegador. Para consultar otro pedido, usa su ID completo en Seguimiento.'}
                 </p>
               </div>
             </div>
@@ -249,7 +329,7 @@ export default function AccountScreen() {
                 <div className="relative flex items-start justify-between gap-4">
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/50">
-                      Pedido en curso · {activeOrder.id}
+                      Pedido en curso · {activeOrder.folio ?? getFolio(activeOrder)}
                     </p>
                     <h2 className="mt-1.5 text-xl font-extrabold">
                       {ORDER_STATUS_LABELS[activeOrder.estado]}
@@ -259,7 +339,7 @@ export default function AccountScreen() {
                       {activeOrder.items.reduce((sum, item) => sum + item.cantidad, 0) === 1
                         ? 'pizza'
                         : 'pizzas'}{' '}
-                      · listo en {activeOrder.tiempoEstimado ?? STORE.tiempoEspera}
+                      · listo en {activeOrder.tiempoEstimado ?? 'unos minutos'}
                     </p>
                   </div>
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 transition group-hover:bg-brand">
@@ -298,7 +378,9 @@ export default function AccountScreen() {
                 <div>
                   <h2 className="text-sm font-extrabold text-ink">Pedidos recientes</h2>
                   <p className="mt-0.5 text-[11px] text-muted">
-                    {orders.length} pedidos entre historial demo y locales
+                    {IS_MOCK
+                      ? `${orders.length} pedidos entre historial demo y locales`
+                      : `${orders.length} pedidos en este dispositivo`}
                   </p>
                 </div>
                 {orders.length > 4 && (
@@ -332,7 +414,9 @@ export default function AccountScreen() {
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-xs font-extrabold text-ink">{order.id}</p>
+                            <p className="text-xs font-extrabold text-ink">
+                              {order.folio ?? getFolio(order)}
+                            </p>
                             <span
                               className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
                                 STATUS_STYLES[order.estado] ?? 'bg-wash text-muted'
@@ -369,8 +453,9 @@ export default function AccountScreen() {
                 <IconShieldCheck className="h-5 w-5 text-open" />
                 <h2 className="mt-2 text-sm font-extrabold text-ink">Privacidad</h2>
                 <p className="mt-1 text-xs leading-relaxed text-muted">
-                  Los datos de esta cuenta son ficticios. El pago no se procesa y no
-                  se guardan datos de tarjeta.
+                  {IS_MOCK
+                    ? 'Los datos de esta cuenta son ficticios. El pago no se procesa y no se guardan datos de tarjeta.'
+                    : 'El pago es simulado. No se guardan datos de tarjeta.'}
                 </p>
               </div>
               <div className="rounded-2xl border border-line bg-paper p-5">
@@ -389,17 +474,19 @@ export default function AccountScreen() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() =>
-                notify('El inicio de sesión estará disponible próximamente.', {
-                  tone: 'info',
-                })
-              }
-              className="w-full rounded-xl border border-line bg-paper py-3 text-xs font-bold text-muted transition hover:border-brand/30 hover:text-brand"
-            >
-              Cerrar sesión (demo)
-            </button>
+            {IS_MOCK && (
+              <button
+                type="button"
+                onClick={() =>
+                  notify('El inicio de sesión estará disponible próximamente.', {
+                    tone: 'info',
+                  })
+                }
+                className="w-full rounded-xl border border-line bg-paper py-3 text-xs font-bold text-muted transition hover:border-brand/30 hover:text-brand"
+              >
+                Cerrar sesión (demo)
+              </button>
+            )}
           </div>
         </div>
       </div>

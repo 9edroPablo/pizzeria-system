@@ -43,10 +43,12 @@ export default function PizzaCard({ pizza, onAdd, abierta = true }) {
       <div className="flex flex-1 flex-col p-5">
         <div className="flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
           <span>{pizza.linea}</span>
-          <span className="inline-flex items-center gap-1 text-star">
-            <IconStar className="h-3 w-3" />
-            <span className="text-ink-soft">{pizza.rating.toFixed(1)}</span>
-          </span>
+          {pizza.rating != null && (
+            <span className="inline-flex items-center gap-1 text-star">
+              <IconStar className="h-3 w-3" />
+              <span className="text-ink-soft">{pizza.rating.toFixed(1)}</span>
+            </span>
+          )}
         </div>
 
         <h3 className="mt-2 text-lg font-extrabold tracking-tight text-ink">
@@ -60,7 +62,7 @@ export default function PizzaCard({ pizza, onAdd, abierta = true }) {
           <div>
             <p className="text-xl font-extrabold text-ink">{formatPrice(pizza.precio)}</p>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">
-              {pizza.tamano} · MXN
+              {[pizza.tamano, 'MXN'].filter(Boolean).join(' · ')}
             </p>
           </div>
           <button

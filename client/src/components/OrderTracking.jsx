@@ -8,12 +8,18 @@ import {
 } from '../context/orderStatus.js'
 import { useToast } from '../context/ToastContext.jsx'
 import { STORE } from '../data/store.js'
+import { IS_MOCK } from '../services/dataSource.js'
+import { formatDate, formatTime } from '../services/format.js'
+import { getErrorMessage } from '../services/http.js'
 import {
   advanceOrderStatus,
+  fetchOrderById,
+  getFolio,
   getLatestOrder,
   getOrder,
+  getWaitTime,
+  isMongoOrderId,
 } from '../services/orderService.js'
-import { formatDate, formatTime } from '../services/format.js'
 import OrderItemsCard from './OrderItemsCard.jsx'
 import { paymentLabel } from '../services/orderLabels.js'
 import OrderStatusTimeline from './OrderStatusTimeline.jsx'
@@ -21,6 +27,7 @@ import PageHeader from './PageHeader.jsx'
 import {
   IconAlert,
   IconArrowRight,
+  IconBag,
   IconClock,
   IconMapPin,
   IconPhone,
@@ -61,21 +68,54 @@ function MapPreview() {
 
 export default function OrderTracking() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const initialId = searchParams.get('pedido') || getLatestOrder()?.id || ''
+  const initialParam = searchParams.get('pedido') ?? ''
+  const latestOrder = getLatestOrder()
+  const initialOrder = initialParam ? getOrder(initialParam) : latestOrder
+  const initialId = initialOrder?.id ?? initialParam
   const [orderId, setOrderId] = useState(initialId)
-  const [order, setOrder] = useState(() => getOrder(initialId))
-  const [query, setQuery] = useState(initialId)
+  const [order, setOrder] = useState(initialOrder)
+  const [query, setQuery] = useState(initialOrder?.folio ?? initialParam)
   const [searchError, setSearchError] = useState('')
+  const [waitInfo, setWaitInfo] = useState(null)
+  const [loading, setLoading] = useState(Boolean(initialId) && !initialOrder)
+  const [refreshing, setRefreshing] = useState(false)
   const { notify } = useToast()
 
   useEffect(() => {
     if (!orderId) return undefined
 
-    const interval = window.setInterval(() => {
-      setOrder(getOrder(orderId))
-    }, 6000)
+    let active = true
 
-    return () => window.clearInterval(interval)
+    const load = async ({ silent = false } = {}) => {
+      if (!silent) setLoading(true)
+      try {
+        const [nextOrder, nextWait] = await Promise.all([
+          fetchOrderById(orderId),
+          getWaitTime().catch(() => null),
+        ])
+        if (!active) return
+        if (nextOrder) {
+          setOrder(nextOrder)
+          setQuery(nextOrder.folio ?? nextOrder.id)
+        }
+        if (nextWait) setWaitInfo(nextWait)
+        setSearchError('')
+      } catch (requestError) {
+        if (!active) return
+        if (!getOrder(orderId)) setOrder(null)
+        setSearchError(getErrorMessage(requestError))
+      } finally {
+        if (active && !silent) setLoading(false)
+      }
+    }
+
+    load()
+    const interval = window.setInterval(() => load({ silent: true }), 8000)
+
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
   }, [orderId])
 
   const currentIndex = useMemo(
@@ -83,33 +123,79 @@ export default function OrderTracking() {
     [order?.estado],
   )
 
-  const handleSearch = (event) => {
-    event.preventDefault()
-    const code = query.trim().toUpperCase()
-    if (!code) {
-      setSearchError('Escribe un código de pedido.')
-      return
-    }
+  const estimate =
+    waitInfo?.tiempoEstimadoMin != null
+      ? `~${waitInfo.tiempoEstimadoMin} min`
+      : order?.tiempoEstimado ?? null
 
-    const found = getOrder(code)
-    if (!found) {
-      setSearchError(`No encontramos el pedido ${code}. Revisa el código e intenta de nuevo.`)
-      setOrder(null)
-      setOrderId('')
-      setSearchParams({})
+  const handleSearch = async (event) => {
+    event.preventDefault()
+    const code = query.trim()
+    if (!code) {
+      setSearchError('Escribe un folio o el ID completo del pedido.')
       return
     }
 
     setSearchError('')
-    setOrder(found)
-    setOrderId(found.id)
-    setQuery(found.id)
-    setSearchParams({ pedido: found.id })
+    const local = getOrder(code)
+    if (local) {
+      setOrder(local)
+      setOrderId(local.id)
+      setQuery(local.folio ?? local.id)
+      setSearchParams({ pedido: local.id })
+      return
+    }
+
+    if (isMongoOrderId(code)) {
+      setLoading(true)
+      try {
+        const found = await fetchOrderById(code)
+        if (!found) {
+          setSearchError('No encontramos ese pedido en el servidor.')
+          setOrder(null)
+          setOrderId('')
+          setSearchParams({})
+          return
+        }
+        setOrder(found)
+        setOrderId(found.id)
+        setQuery(found.folio ?? found.id)
+        setSearchParams({ pedido: found.id })
+      } catch (requestError) {
+        setSearchError(getErrorMessage(requestError))
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    setSearchError(
+      'Ese folio no está guardado en este dispositivo. Pega el ID completo de 24 caracteres para consultar el servidor.',
+    )
+    setOrder(null)
+    setOrderId('')
+    setSearchParams({})
   }
 
-  const handleRefresh = () => {
-    setOrder(getOrder(orderId))
-    notify('Estado actualizado', { tone: 'info' })
+  const handleRefresh = async () => {
+    if (!orderId) return
+    setRefreshing(true)
+    try {
+      const [nextOrder, nextWait] = await Promise.all([
+        fetchOrderById(orderId),
+        getWaitTime().catch(() => null),
+      ])
+      if (nextOrder) setOrder(nextOrder)
+      if (nextWait) setWaitInfo(nextWait)
+      notify(
+        nextOrder ? 'Estado actualizado' : 'No se pudo actualizar el pedido',
+        { tone: nextOrder ? 'info' : 'error' },
+      )
+    } catch (requestError) {
+      notify(getErrorMessage(requestError), { tone: 'error' })
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   const handleAdvance = () => {
@@ -144,7 +230,19 @@ export default function OrderTracking() {
       <div className="mx-auto max-w-6xl px-4 py-7 sm:px-6 sm:py-10 lg:px-10">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
           <div className="space-y-5">
-            {order ? (
+            {loading && !order ? (
+              <div className="flex flex-col items-center gap-3 rounded-2xl border border-line bg-paper px-6 py-20 text-center">
+                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-wash text-muted">
+                  <IconRefresh className="h-6 w-6 animate-spin" />
+                </span>
+                <h2 className="text-lg font-extrabold text-ink">
+                  Cargando tu pedido…
+                </h2>
+                <p className="text-sm text-muted">
+                  Consultando el estado con la pizzería.
+                </p>
+              </div>
+            ) : order ? (
               <>
                 <section className="relative overflow-hidden rounded-3xl bg-ink p-6 text-white sm:p-8">
                   <div
@@ -160,7 +258,7 @@ export default function OrderTracking() {
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/50">
-                          Pedido {order.id}
+                          Pedido {order.folio ?? getFolio(order)}
                         </p>
                         <h2 className="mt-2 text-2xl font-extrabold sm:text-3xl">
                           {delivered
@@ -219,22 +317,34 @@ export default function OrderTracking() {
                         <IconClock className="h-4 w-4 text-white/60" />
                         {delivered
                           ? `Entregado · ${formatTime(order.actualizadoEn ?? order.creadoEn)}`
-                          : `Listo en ${order.tiempoEstimado ?? STORE.tiempoEspera}`}
+                          : `Listo en ${estimate ?? 'unos minutos'}`}
                       </span>
                       <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-2 text-xs font-semibold">
                         <IconMapPin className="h-4 w-4 text-white/60" />
                         {STORE.colonia} · CDMX
                       </span>
+                      {waitInfo?.pedidosActivos != null && (
+                        <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-2 text-xs font-semibold">
+                          <IconBag className="h-4 w-4 text-white/60" />
+                          {waitInfo.pedidosActivos}{' '}
+                          {waitInfo.pedidosActivos === 1
+                            ? 'pedido activo'
+                            : 'pedidos activos'}
+                        </span>
+                      )}
                     </div>
 
                     <div className="mt-6 flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={handleRefresh}
-                        className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-[11px] font-bold text-white transition hover:bg-white/10"
+                        disabled={refreshing}
+                        className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-[11px] font-bold text-white transition hover:bg-white/10 disabled:opacity-60"
                       >
-                        <IconRefresh className="h-3.5 w-3.5" />
-                        Actualizar
+                        <IconRefresh
+                          className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`}
+                        />
+                        {refreshing ? 'Actualizando…' : 'Actualizar'}
                       </button>
                       {order.simulado && !delivered && (
                         <button
@@ -285,7 +395,7 @@ export default function OrderTracking() {
                     No encontramos ese pedido
                   </h2>
                   <p className="mt-1 max-w-sm text-sm text-muted">
-                    Busca por código en el panel de la derecha o revisa el historial
+                    Busca por folio en el panel de la derecha o revisa el historial
                     desde tu cuenta.
                   </p>
                 </div>
@@ -303,7 +413,7 @@ export default function OrderTracking() {
             <section className="rounded-2xl border border-line bg-paper p-5">
               <h2 className="text-sm font-extrabold text-ink">Buscar un pedido</h2>
               <p className="mt-1 text-xs text-muted">
-                Ingresa el código que aparece en tu confirmación.
+                Ingresa el folio de tu confirmación o el ID completo del pedido.
               </p>
               <form onSubmit={handleSearch} className="mt-3 flex gap-2">
                 <div className="relative flex-1">
@@ -315,8 +425,8 @@ export default function OrderTracking() {
                       setQuery(event.target.value)
                       setSearchError('')
                     }}
-                    aria-label="Código de pedido"
-                    placeholder="FF-0000"
+                    aria-label="Folio o ID de pedido"
+                    placeholder="#A1B2 o ID completo"
                     className="w-full rounded-xl border border-line bg-paper py-2.5 pl-9 pr-3 text-sm font-semibold uppercase tracking-wide text-ink outline-none transition placeholder:normal-case placeholder:tracking-normal placeholder:text-muted/70 focus:border-brand focus:ring-2 focus:ring-brand/10"
                   />
                 </div>
@@ -333,24 +443,30 @@ export default function OrderTracking() {
                 </p>
               )}
               <p className="mt-3 text-[10px] text-muted">
-                Prueba con el pedido de ejemplo{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setQuery('FF-4892')
-                    const found = getOrder('FF-4892')
-                    if (found) {
-                      setOrder(found)
-                      setOrderId(found.id)
-                      setSearchError('')
-                      setSearchParams({ pedido: found.id })
-                    }
-                  }}
-                  className="font-bold text-brand underline underline-offset-2"
-                >
-                  FF-4892
-                </button>
-                .
+                {IS_MOCK ? (
+                  <>
+                    Prueba con el pedido de ejemplo{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuery('FF-4892')
+                        const found = getOrder('FF-4892')
+                        if (found) {
+                          setOrder(found)
+                          setOrderId(found.id)
+                          setSearchError('')
+                          setSearchParams({ pedido: found.id })
+                        }
+                      }}
+                      className="font-bold text-brand underline underline-offset-2"
+                    >
+                      FF-4892
+                    </button>
+                    .
+                  </>
+                ) : (
+                  'El folio se guarda en este dispositivo. Para consultar otro pedido, pega su ID completo.'
+                )}
               </p>
             </section>
 
@@ -386,7 +502,9 @@ export default function OrderTracking() {
                 {STORE.telefonoVisible}
               </a>
               <p className="mt-2 text-[10px] text-muted">
-                Pedido {order?.id ?? '—'} · {paymentLabel(order?.metodoPago)}
+                Pedido{' '}
+                {order ? (order.folio ?? getFolio(order)) : '—'} ·{' '}
+                {paymentLabel(order?.metodoPago)}
               </p>
             </section>
           </aside>

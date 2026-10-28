@@ -35,15 +35,18 @@ export default function OrderItemsCard({ order, showContact = false }) {
             <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-wash">
               <PizzaImage
                 topping={item.topping}
+                src={item.imagen}
                 alt={item.nombre}
                 className="h-full w-full"
               />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold text-ink">{item.nombre}</p>
-              <p className="mt-0.5 text-[11px] text-muted">
-                {[item.linea, item.tamano].filter(Boolean).join(' · ')}
-              </p>
+              {(item.linea || item.tamano) && (
+                <p className="mt-0.5 text-[11px] text-muted">
+                  {[item.linea, item.tamano].filter(Boolean).join(' · ')}
+                </p>
+              )}
               <p className="mt-1 text-[11px] font-semibold text-muted">
                 {item.cantidad} × {formatPrice(item.precio)}
               </p>
