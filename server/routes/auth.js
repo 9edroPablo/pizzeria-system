@@ -1,9 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { registrar, login } = require('../controllers/authController');
+const { registrar, login } = require('../controllers/Authcontroller');
 
-// Con el prefijo /api/auth (definido en index.js):
 router.post('/register', registrar); // POST /api/auth/register
-router.post('/login', login);        // POST /api/auth/login
+router.post('/login', login);       // POST /api/auth/login
 
 module.exports = router;
