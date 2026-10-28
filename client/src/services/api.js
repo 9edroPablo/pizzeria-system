@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL ?? '/api'
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:5000/api'
 
 // Wrapper de fetch para todos los servicios del cliente.
 export async function apiFetch(path, { signal, ...options } = {}) {
@@ -9,7 +9,14 @@ export async function apiFetch(path, { signal, ...options } = {}) {
   })
 
   if (!response.ok) {
-    throw new Error(`Error ${response.status}: no se pudo consultar ${path}`)
+    let mensaje = `Error ${response.status}: no se pudo consultar ${path}`
+    try {
+      const errData = await response.json()
+      if (errData?.mensaje) mensaje = errData.mensaje
+    } catch {
+      // Ignorar si no es JSON
+    }
+    throw new Error(mensaje)
   }
 
   return response.json()
