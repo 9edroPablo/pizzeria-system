@@ -1,3 +1,5 @@
+import MenuScreen from '../components/MenuScreen.jsx'
+
 export default function Menu() {
-  return <h1>Menú</h1>
+  return <MenuScreen />
 }
