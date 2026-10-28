@@ -1,83 +1,64 @@
-const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+require('dotenv').config();
 const mongoose = require('mongoose');
 const Producto = require('./models/Product');
+const menu = require('./data/menuReal');
 
-const productos = [
-  // --- 6 pizzas del diseño en Figma ---
-  {
-    nombre: 'Margherita D.O.P.',
-    descripcion: 'Salsa de tomate San Marzano, mozzarella fresca, albahaca y aceite de oliva extra virgen',
-    precio: 120,
-    categoria: 'PIZZA',
-    imagen_url: 'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?auto=format&fit=crop&w=800&q=80'
-  },
-  {
-    nombre: 'Pepperoni',
-    descripcion: 'Clásica con doble pepperoni crujiente y queso mozzarella fundido',
-    precio: 129,
-    categoria: 'PIZZA',
-    imagen_url: 'https://images.unsplash.com/photo-1628840042765-356cda07504e?auto=format&fit=crop&w=800&q=80'
-  },
-  {
-    nombre: 'Cuatro Quesos',
-    descripcion: 'Mezcla artesanal de mozzarella, parmesano, gorgonzola y gouda',
-    precio: 149,
-    categoria: 'PIZZA',
-    imagen_url: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=800&q=80'
-  },
-  {
-    nombre: 'Vegetariana',
-    descripcion: 'Pimiento morrón, champiñones frescos, cebolla morada, aceitunas negras y jitomate',
-    precio: 125,
-    categoria: 'PIZZA',
-    imagen_url: 'https://images.unsplash.com/photo-1571407970349-bc81e7e96d47?auto=format&fit=crop&w=800&q=80'
-  },
-  {
-    nombre: 'Hawaiana',
-    descripcion: 'Jamón horneado y piña caramelizada sobre base de queso mozzarella',
-    precio: 135,
-    categoria: 'PIZZA',
-    imagen_url: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=800&q=80'
-  },
-  {
-    nombre: 'Mexicana',
-    descripcion: 'Chorizo artesanal, rodajas de jalapeño, cebolla y toque de frijoles',
-    precio: 139,
-    categoria: 'PIZZA',
-    imagen_url: 'https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?auto=format&fit=crop&w=800&q=80'
-  },
+const limpiar = process.argv.includes('--limpiar');
 
-  // --- 3 bebidas ---
-  {
-    nombre: 'Refresco de cola 600 ml',
-    descripcion: 'Bebida fría bien helada',
-    precio: 25,
-    categoria: 'BEBIDA',
-    imagen_url: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=800&q=80'
-  },
-  {
-    nombre: 'Agua de jamaica 500 ml',
-    descripcion: 'Infusión fresca natural de flor de jamaica',
-    precio: 22,
-    categoria: 'BEBIDA',
-    imagen_url: 'https://images.unsplash.com/photo-1556881286-fc6915169721?auto=format&fit=crop&w=800&q=80'
-  },
-  {
-    nombre: 'Limonada mineral 500 ml',
-    descripcion: 'Limonada recién exprimida con agua mineral',
-    precio: 28,
-    categoria: 'BEBIDA',
-    imagen_url: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=800&q=80'
-  },
-];
+// 1) Seguridad: no correr con datos sin completar
+const incompletos = menu.filter(
+  (p) => JSON.stringify(p).includes('PENDIENTE') || !(Number(p.precio) > 0)
+);
+if (menu.length === 0 || incompletos.length > 0) {
+  console.error(
+    `❌ Seed cancelado: faltan datos en data/menuReal.js (${incompletos.length} producto(s) con PENDIENTE o precio 0).`
+  );
+  console.error('   Completar los datos correspondientes. No se ejecuto en la base de datos.');
+  process.exit(1);
+}
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/pizzeria_db';
+// Aviso (no bloquea): productos sin imagen
+const sinImagen = menu.filter((p) => !p.imagen_url);
+if (sinImagen.length > 0) {
+  console.warn(
+    `⚠️  ${sinImagen.length} producto(s) sin imagen_url. Se guardarán vacíos; cuando tengas las rutas, llénalas en data/menuReal.js y vuelve a correr el seed.`
+  );
+}
 
-mongoose
-  .connect(MONGO_URI)
-  .then(() => Producto.deleteMany({}))
-  .then(() => Producto.insertMany(productos))
-  .then((insertados) => console.log(`✅ Seed listo: ${insertados.length} productos insertados en MongoDB Atlas`))
-  .catch((error) => console.error('❌ Error en el seed:', error.message))
-  .finally(() => mongoose.disconnect());
+const ejecutar = async () => {
+  try {
+    // 2) Validar TODO antes de tocar la base: si uno está mal, no se escribe nada
+    for (const producto of menu) {
+      await new Producto(producto).validate();
+    }
+
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log(`Conectado a: ${mongoose.connection.name}`);
+
+    // 3) Upsert por nombre
+    for (const producto of menu) {
+      await Producto.findOneAndUpdate(
+        { nombre: producto.nombre },
+        { $set: producto },
+        { upsert: true, runValidators: true, setDefaultsOnInsert: true }
+      );
+    }
+
+    if (limpiar) {
+      const resultado = await Producto.deleteMany({
+        nombre: { $nin: menu.map((p) => p.nombre) },
+      });
+      console.log(`🧹 Productos eliminados que no estaban en el menú real: ${resultado.deletedCount}`);
+    }
+
+    const total = await Producto.countDocuments();
+    console.log(`✅ Seed listo: ${menu.length} productos del menú real aplicados (total en la colección: ${total})`);
+  } catch (error) {
+    console.error('❌ Error en el seed:', error.message);
+    process.exitCode = 1;
+  } finally {
+    await mongoose.disconnect();
+  }
+};
+
+ejecutar();
