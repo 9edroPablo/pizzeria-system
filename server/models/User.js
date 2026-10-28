@@ -7,24 +7,23 @@ const usuarioSchema = new mongoose.Schema(
   {
     nombre: {
       type: String,
-      required: [true, 'El nombre es obligatorio'],
+      required: false,
+      default: 'Cliente Pizzería',
       trim: true,
-      minlength: [2, 'El nombre es muy corto'],
       maxlength: [80, 'El nombre es muy largo'],
     },
     correo: {
       type: String,
       required: [true, 'El correo es obligatorio'],
-      unique: true, 
-      lowercase: true, 
+      unique: true,
+      lowercase: true,
       trim: true,
-      match: [/^\S+@\S+\.\S+$/, 'Correo no válido'], 
+      match: [/^\S+@\S+\.\S+$/, 'Correo no válido'],
     },
     password: {
       type: String,
-      required: [true, 'La contraseña es obligatoria'],
-      minlength: [8, 'La contraseña debe tener al menos 8 caracteres'],
-      select: false, 
+      required: false,
+      select: false,
     },
     rol: {
       type: String,
@@ -40,11 +39,12 @@ const usuarioSchema = new mongoose.Schema(
 );
 
 usuarioSchema.pre('save', async function () {
-  if (!this.isModified('password')) return;
+  if (!this.password || !this.isModified('password')) return;
   this.password = await bcrypt.hash(this.password, 10);
 });
 
 usuarioSchema.methods.compararPassword = function (passwordIngresada) {
+  if (!this.password) return Promise.resolve(false);
   return bcrypt.compare(passwordIngresada, this.password);
 };
 
