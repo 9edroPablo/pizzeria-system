@@ -21,6 +21,28 @@ export async function markOrderAsPaid(id) {
   return data.pedido
 }
 
+// GET /api/store/status -> { tienda_abierta, ubicacion }
+export async function getStoreStatus() {
+  const { data } = await http.get('/store/status')
+  return data
+}
+
+// PATCH /api/store/status  body: { tienda_abierta } y/o { ubicacion }
+export async function updateStoreStatus(cambios) {
+  const { data } = await http.patch('/store/status', cambios)
+  return data
+}
+
+// GET /api/orders/history -> { totalVentas, cantidad, pedidos } (solo ENTREGADO)
+export async function getSalesHistory() {
+  const { data } = await http.get('/orders/history')
+  return {
+    totalVentas: Number(data?.totalVentas) || 0,
+    cantidad: Number(data?.cantidad) || 0,
+    pedidos: Array.isArray(data?.pedidos) ? data.pedidos : [],
+  }
+}
+
 // PATCH /api/orders/:id/status  body: { estado }
 export async function updateOrderStatus(id, estado) {
   const { data } = await http.patch(`/orders/${id}/status`, { estado })

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getErrorMessage } from '../services/http.js'
 
-// Carga una lista del backend y la vuelve a pedir cada `intervalMs`.
-// Sirve para que Mostrador y Cocina vean los pedidos nuevos sin recargar.
-export function usePolling(fetcher, intervalMs = 10000) {
-  const [data, setData] = useState([])
+// Carga datos del backend y los vuelve a pedir cada `intervalMs`.
+// Sirve para que Mostrador, Cocina y Admin vean los cambios sin recargar.
+// `initialData` es el valor mientras carga ([] para listas, null para objetos).
+export function usePolling(fetcher, intervalMs = 10000, initialData = []) {
+  const [data, setData] = useState(initialData)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [lastUpdate, setLastUpdate] = useState(null)
@@ -37,5 +38,5 @@ export function usePolling(fetcher, intervalMs = 10000) {
     }
   }, [refresh, intervalMs])
 
-  return { data, loading, error, lastUpdate, refresh }
+  return { data, setData, loading, error, lastUpdate, refresh }
 }
