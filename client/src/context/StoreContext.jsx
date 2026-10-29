@@ -83,14 +83,24 @@ export function StoreProvider({ children }) {
       if (active) await refresh()
     }
 
-    load()
-    const interval = window.setInterval(() => {
+    const refreshSilently = () => {
       if (active) refresh({ silent: true })
-    }, 30000)
+    }
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshSilently()
+    }
+
+    load()
+    const interval = window.setInterval(refreshSilently, 15000)
+    window.addEventListener('focus', refreshSilently)
+    document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
       active = false
       window.clearInterval(interval)
+      window.removeEventListener('focus', refreshSilently)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [refresh])
 

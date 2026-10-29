@@ -154,10 +154,7 @@ export default function CheckoutScreen() {
       // pedido. En modo mock no hay backend que registrar.
       const customer = IS_MOCK
         ? null
-        : await registerCustomer({
-            nombre: form.nombre.trim(),
-            correo: form.correo.trim(),
-          })
+        : await registerCustomer({ correo: form.correo.trim() })
 
       const order = await createOrder({
         usuarioId: IS_MOCK ? DEMO_USER.id : customer?._id,

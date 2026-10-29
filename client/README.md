@@ -35,8 +35,9 @@ Endpoints usados:
 | POST | `/api/orders` | Crear pedido con `metodo_pago` `ANTICIPADO` o `TIENDA` |
 
 La tienda se considera cerrada hasta que `GET /api/store/status` confirme lo
-contrario (fail-closed). Con la tienda cerrada se muestra la vista de tienda
-cerrada y se bloquean carrito y checkout.
+contrario (fail-closed). El estado se consulta cada 15 segundos y también al
+recuperar el foco o volver a la pestaña. Con la tienda cerrada se muestra el
+banner de tienda cerrada y se bloquean catálogo, carrito y checkout.
 
 Para trabajar sin backend:
 
@@ -73,14 +74,18 @@ campos, se normalizan ahí sin tocar las pantallas.
 - En la confirmación, **Comprobante PDF** abre el diálogo de impresión para
   guardarlo como PDF.
 
+## Estado real del pedido
+
+La confirmación y el seguimiento consultan `GET /api/orders/:id` y
+`GET /api/orders/wait-time` periódicamente. Si la API no responde, se conserva
+el último snapshot local y se muestra el error correspondiente. El estado del
+pedido ya no se modifica desde el cliente.
+
 ## Pendientes de integración
 
-- `GET /api/orders/:id` aún no está en `develop`: mientras tanto la
-  confirmación y el seguimiento usan el pedido guardado en `localStorage` y lo
-  refrescan contra la API cuando el endpoint esté disponible.
 - `POST /api/orders` todavía no valida el estado de la tienda en el servidor;
   el bloqueo de tienda cerrada es del cliente.
 - El backend no almacena teléfono ni notas; el checkout de API los omite y solo
   se muestran en modo mock.
-- Registro con contraseña, correo de confirmación, pasarela de pago real,
-  seguimiento en vivo y mapa interactivo.
+- Registro con contraseña, correo de confirmación, pasarela de pago real y
+  mapa interactivo.

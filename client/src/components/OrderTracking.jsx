@@ -12,7 +12,6 @@ import { IS_MOCK } from '../services/dataSource.js'
 import { formatDate, formatTime } from '../services/format.js'
 import { getErrorMessage } from '../services/http.js'
 import {
-  advanceOrderStatus,
   fetchOrderById,
   getFolio,
   getLatestOrder,
@@ -33,7 +32,6 @@ import {
   IconPhone,
   IconRefresh,
   IconSearch,
-  IconShieldCheck,
 } from './icons.jsx'
 
 function MapPreview() {
@@ -198,15 +196,6 @@ export default function OrderTracking() {
     }
   }
 
-  const handleAdvance = () => {
-    if (!order) return
-    const updated = advanceOrderStatus(order.id)
-    if (updated) {
-      setOrder(getOrder(updated.id))
-      notify(`Estado actualizado a ${ORDER_STATUS_LABELS[updated.estado]}`)
-    }
-  }
-
   const delivered = order?.estado === 'ENTREGADO'
   const progress = order ? ((currentIndex + 1) / ORDER_FLOW.length) * 100 : 0
 
@@ -346,15 +335,6 @@ export default function OrderTracking() {
                         />
                         {refreshing ? 'Actualizando…' : 'Actualizar'}
                       </button>
-                      {order.simulado && !delivered && (
-                        <button
-                          type="button"
-                          onClick={handleAdvance}
-                          className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-[11px] font-bold text-white/70 transition hover:bg-white/10 hover:text-white"
-                        >
-                          Avanzar estado (demo)
-                        </button>
-                      )}
                     </div>
                   </div>
                 </section>
@@ -374,16 +354,6 @@ export default function OrderTracking() {
                 </section>
 
                 <OrderItemsCard order={order} />
-
-                {order.simulado && (
-                  <div className="flex items-start gap-2.5 rounded-xl border border-line bg-wash/60 p-4">
-                    <IconShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-open" />
-                    <p className="text-[11px] leading-relaxed text-muted">
-                      Seguimiento de demostración: el estado avanza automáticamente
-                      cada 40 segundos. En producción se leerá desde la base de datos.
-                    </p>
-                  </div>
-                )}
               </>
             ) : (
               <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-line bg-paper px-6 py-20 text-center">

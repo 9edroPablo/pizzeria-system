@@ -178,7 +178,7 @@ export default function OrderConfirmation() {
     }
 
     load()
-    const interval = window.setInterval(() => load({ silent: true }), 15000)
+    const interval = window.setInterval(() => load({ silent: true }), 10000)
 
     return () => {
       active = false

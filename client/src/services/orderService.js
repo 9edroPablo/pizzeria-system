@@ -1,11 +1,10 @@
 import { getDemoOrder, getDemoOrders } from '../data/demoOrders.js'
-import { ORDER_FLOW, ORDER_STATUS, getStatusIndex } from '../context/orderStatus.js'
+import { ORDER_STATUS } from '../context/orderStatus.js'
 import { saveCustomer } from './customerService.js'
 import http from './http.js'
 import { IS_MOCK } from './dataSource.js'
 
 const ORDERS_KEY = 'forno:pedidos'
-const SIMULATION_STEP_MS = 40 * 1000
 const MONGO_ID = /^[a-f0-9]{24}$/i
 
 export function isMongoOrderId(id) {
@@ -58,21 +57,6 @@ function generateOrderId() {
   return id
 }
 
-function applySimulation(order) {
-  if (!IS_MOCK || !order.simulado || order.estadoManual) return order
-
-  const created = new Date(order.creadoEn).getTime()
-  if (Number.isNaN(created)) return order
-
-  const elapsed = Math.max(0, Date.now() - created)
-  const step = Math.min(
-    ORDER_FLOW.length - 1,
-    Math.floor(elapsed / SIMULATION_STEP_MS),
-  )
-
-  return { ...order, estado: ORDER_FLOW[step] }
-}
-
 function sortOrders(orders) {
   return [...orders].sort(
     (a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime(),
@@ -98,7 +82,7 @@ export function getOrders({ includeDemo = IS_MOCK } = {}) {
   const demo = includeDemo
     ? getDemoOrders().map((order) => ({ ...order, folio: getFolio(order) }))
     : []
-  return sortOrders(uniqueById([...stored, ...demo])).map(applySimulation)
+  return sortOrders(uniqueById([...stored, ...demo]))
 }
 
 export function getOrder(id) {
@@ -125,8 +109,7 @@ export function getOrder(id) {
       )
     : null
 
-  const order = stored ?? demo ?? null
-  return order ? applySimulation(order) : null
+  return stored ?? demo ?? null
 }
 
 export function getLatestOrder() {
@@ -166,7 +149,6 @@ function buildLocalOrder(input, id) {
     items,
     subtotal: total,
     total,
-    simulado: true,
     origen: 'mock',
   }
 }
@@ -233,7 +215,6 @@ function normalizeApiOrder(payload, fallback) {
     subtotal: Number.isFinite(subtotal) ? subtotal : total,
     total: Number.isFinite(total) ? total : 0,
     tiempoEstimado: raw.tiempoEstimado ?? base.tiempoEstimado ?? '',
-    simulado: false,
     origen: 'api',
   }
 }
@@ -282,8 +263,9 @@ export async function createOrder(input) {
   return localOrder
 }
 
-// GET /api/orders/:id. Mientras el endpoint no exista en develop, el
-// componente puede seguir usando el snapshot local creado por el checkout.
+// GET /api/orders/:id. El snapshot local creado por el checkout se usa como
+// respaldo cuando el pedido no existe en el servidor, pero los errores de red
+// o del servidor se propagan para que la pantalla pueda avisar.
 export async function fetchOrderById(id) {
   if (!id) return null
 
@@ -301,12 +283,11 @@ export async function fetchOrderById(id) {
   } catch (error) {
     const status = error?.response?.status
     if (status === 400 || status === 404) return local
-    if (local) return local
     throw error
   }
 }
 
-// GET /api/orders/wait-time -> { pedidosActivos, tiempoEstimadoMin }
+// GET /api/orders/wait-time -> { pedidosActivos, tiempoEstimadoMin, tienda_abierta }
 export async function getWaitTime() {
   if (IS_MOCK) {
     return { pedidosActivos: 0, tiempoEstimadoMin: 30, tiendaAbierta: null }
@@ -324,29 +305,6 @@ export async function getWaitTime() {
     tiendaAbierta:
       typeof data?.tienda_abierta === 'boolean' ? data.tienda_abierta : null,
   }
-}
-
-export function advanceOrderStatus(id) {
-  if (!IS_MOCK) return null
-
-  const stored = readStoredOrders()
-  const index = stored.findIndex(
-    (order) => order.id.toLowerCase() === String(id).toLowerCase(),
-  )
-  if (index === -1) return null
-
-  const current = applySimulation(stored[index])
-  const nextStatus =
-    ORDER_FLOW[Math.min(getStatusIndex(current.estado) + 1, ORDER_FLOW.length - 1)]
-  const updated = {
-    ...stored[index],
-    estado: nextStatus,
-    estadoManual: true,
-    actualizadoEn: new Date().toISOString(),
-  }
-  stored[index] = updated
-  writeStoredOrders(stored)
-  return updated
 }
 
 export function resetLocalOrders() {
