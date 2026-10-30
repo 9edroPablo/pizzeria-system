@@ -1,13 +1,12 @@
 const Order = require('../models/Order');
+const Configuracion = require('../models/Configuracion');
 
 // 1. POST /api/orders - Crear un nuevo pedido
 exports.createOrder = async (req, res) => {
     try {
-        // Flag temporal mientras Isaías sube su modelo de Tienda
-        // TODO: consultar el estado de apertura en el modelo de tienda.
-        const tiendaAbierta = true;
+        const config = await Configuracion.findOne();
 
-        if (!tiendaAbierta) {
+        if (config && config.tienda_abierta === false) {
             return res.status(400).json({
                 mensaje: 'La pizzería se encuentra cerrada en este momento'
             });
@@ -84,17 +83,22 @@ exports.updateOrderStatus = async (req, res) => {
             });
         }
 
-        const pedido = await Order.findByIdAndUpdate(
-            id,
-            { estado },
-            { new: true }
-        );
+        const pedido = await Order.findById(id);
 
         if (!pedido) {
             return res.status(404).json({ mensaje: 'Pedido no encontrado' });
         }
 
-        res.status(200).json({ mensaje: 'Estado actualizado correctamente', pedido });
+        if (estado === 'ENTREGADO' && pedido.pagado === false) {
+            return res.status(400).json({
+                mensaje: 'No se puede entregar un pedido sin registrar el cobro en tienda primero'
+            });
+        }
+
+        pedido.estado = estado;
+        await pedido.save();
+
+        return res.status(200).json({ mensaje: 'Estado actualizado correctamente', pedido });
     } catch (error) {
         res.status(error.name === 'CastError' ? 400 : 500).json({ mensaje: 'Error al actualizar estado', error: error.message });
     }
