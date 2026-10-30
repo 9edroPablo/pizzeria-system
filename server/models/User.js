@@ -20,9 +20,13 @@ const usuarioSchema = new mongoose.Schema(
       trim: true,
       match: [/^\S+@\S+\.\S+$/, 'Correo no válido'],
     },
+    // Opcional: el Checkout puede registrar a un cliente solo con su correo.
+    // Si se envía una contraseña, debe tener al menos 8 caracteres
+    // (minlength no se evalúa cuando el campo no viene).
     password: {
       type: String,
       required: false,
+      minlength: [8, 'La contraseña debe tener al menos 8 caracteres'],
       select: false,
     },
     rol: {
@@ -56,7 +60,10 @@ usuarioSchema.set('toJSON', {
   },
 });
 
-const Usuario = mongoose.model('Usuario', usuarioSchema);
+// El nombre del modelo ('User') es el que usan los ref de Order.js.
+// El 3er argumento fija la colección en Atlas: sin él Mongoose usaría 'users'
+// y los usuarios ya guardados en 'usuarios' quedarían huérfanos.
+const Usuario = mongoose.model('User', usuarioSchema, 'usuarios');
 
 module.exports = Usuario;
 module.exports.ROLES = ROLES;

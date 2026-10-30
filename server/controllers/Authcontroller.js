@@ -31,7 +31,12 @@ const registrar = async (req, res) => {
       if (existente) return respuestaExistente(res, existente);
     }
 
-    const usuario = await Usuario.create({ nombre, correo, password });
+    // Un campo vacío ("" de un formulario sin llenar) se trata como "no enviado":
+    // así aplica el nombre por defecto y no se exige longitud a una contraseña inexistente.
+    const nombreFinal = typeof nombre === 'string' && nombre.trim() === '' ? undefined : nombre;
+    const passwordFinal = password === '' ? undefined : password;
+
+    const usuario = await Usuario.create({ nombre: nombreFinal, correo, password: passwordFinal });
     res.status(201).json({ mensaje: 'Registro exitoso', usuario });
   } catch (error) {
     if (error.code === 11000 && correoNormalizado) {
