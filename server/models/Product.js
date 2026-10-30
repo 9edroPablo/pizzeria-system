@@ -48,7 +48,10 @@ productoSchema.set('toJSON', {
   },
 });
 
-const Producto = mongoose.model('Producto', productoSchema);
+// El nombre del modelo ('Product') es el que usan los ref de Order.js.
+// El 3er argumento fija la colección en Atlas: sin él Mongoose usaría 'products'
+// y los productos ya guardados en 'productos' quedarían huérfanos.
+const Producto = mongoose.model('Product', productoSchema, 'productos');
 
 module.exports = Producto;
 module.exports.CATEGORIAS = CATEGORIAS;
