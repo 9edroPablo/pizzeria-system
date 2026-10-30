@@ -1,11 +1,20 @@
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { useMemo } from 'react'
-import { getOrder } from '../services/orderService.js'
-import { formatDate, formatPrice, formatTime } from '../services/format.js'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  ORDER_FLOW,
   ORDER_STATUS_LABELS,
+  getStatusIndex,
 } from '../context/orderStatus.js'
 import { STORE } from '../data/store.js'
+import { IS_MOCK } from '../services/dataSource.js'
+import { formatDate, formatPrice, formatTime } from '../services/format.js'
+import { getErrorMessage } from '../services/http.js'
+import {
+  fetchOrderById,
+  getFolio,
+  getOrder,
+  getWaitTime,
+} from '../services/orderService.js'
 import OrderItemsCard from './OrderItemsCard.jsx'
 import { paymentLabel } from '../services/orderLabels.js'
 import OrderStatusTimeline from './OrderStatusTimeline.jsx'
@@ -20,7 +29,7 @@ import {
   IconShieldCheck,
 } from './icons.jsx'
 
-function ReceiptPrint({ order }) {
+function ReceiptPrint({ order, estimate }) {
   return (
     <div className="hidden print:block">
       <header className="flex items-start justify-between border-b-2 border-ink pb-5">
@@ -40,7 +49,9 @@ function ReceiptPrint({ order }) {
           <p className="text-[10px] font-bold uppercase tracking-[0.18em]">
             Comprobante de pedido
           </p>
-          <p className="mt-1 text-xl font-extrabold">{order.id}</p>
+          <p className="mt-1 text-xl font-extrabold">
+            {order.folio ?? getFolio(order)}
+          </p>
           <p className="mt-1 text-xs">
             {formatDate(order.creadoEn)} · {formatTime(order.creadoEn)}
           </p>
@@ -53,7 +64,7 @@ function ReceiptPrint({ order }) {
       <section className="mt-6 grid grid-cols-2 gap-6 text-xs">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-wider">Cliente</p>
-          <p className="mt-1 font-bold">{order.clienteNombre || 'Cliente de demostración'}</p>
+          <p className="mt-1 font-bold">{order.clienteNombre || 'Cliente'}</p>
           {order.clienteCorreo && <p>{order.clienteCorreo}</p>}
           {order.clienteTelefono && <p>{order.clienteTelefono}</p>}
         </div>
@@ -63,7 +74,7 @@ function ReceiptPrint({ order }) {
           <p>
             {STORE.colonia}, {STORE.ciudad} {STORE.codigoPostal}
           </p>
-          <p className="mt-1">Listo en {order.tiempoEstimado ?? STORE.tiempoEspera}</p>
+          <p className="mt-1">Listo en {estimate ?? order.tiempoEstimado ?? 'unos minutos'}</p>
         </div>
       </section>
 
@@ -125,8 +136,10 @@ function ReceiptPrint({ order }) {
       </section>
 
       <footer className="mt-10 border-t border-line pt-3 text-[10px] text-muted">
-        Documento de demostración. El pago no se procesó y no se almacenaron datos
-        de tarjeta. Gracias por elegir Forno & Farina.
+        {IS_MOCK
+          ? 'Documento de demostración. El pago no se procesó y no se almacenaron datos de tarjeta.'
+          : 'Pago simulado. No se procesó ningún cargo real ni se almacenaron datos de tarjeta.'}{' '}
+        Gracias por elegir Forno & Farina.
       </footer>
     </div>
   )
@@ -136,7 +149,56 @@ export default function OrderConfirmation() {
   const { id } = useParams()
   const [searchParams] = useSearchParams()
   const isNew = searchParams.get('nuevo') === '1'
-  const order = useMemo(() => getOrder(id), [id])
+  const localOrder = useMemo(() => getOrder(id), [id])
+  const [order, setOrder] = useState(localOrder)
+  const [waitInfo, setWaitInfo] = useState(null)
+  const [loading, setLoading] = useState(!localOrder)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let active = true
+
+    const load = async ({ silent = false } = {}) => {
+      if (!silent && !localOrder) setLoading(true)
+      try {
+        const [nextOrder, nextWait] = await Promise.all([
+          fetchOrderById(id),
+          getWaitTime().catch(() => null),
+        ])
+        if (!active) return
+        if (nextOrder) setOrder(nextOrder)
+        if (nextWait) setWaitInfo(nextWait)
+        setError(null)
+      } catch (requestError) {
+        if (!active) return
+        if (!localOrder) setError(getErrorMessage(requestError))
+      } finally {
+        if (active && !silent) setLoading(false)
+      }
+    }
+
+    load()
+    const interval = window.setInterval(() => load({ silent: true }), 10000)
+
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [id, localOrder])
+
+  if (loading && !order) {
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center gap-4 px-4 py-24 text-center">
+        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-wash text-muted">
+          <IconReceipt className="h-7 w-7" />
+        </span>
+        <h1 className="text-2xl font-extrabold text-ink">Cargando tu pedido…</h1>
+        <p className="text-sm text-muted">
+          Consultando el estado con la pizzería.
+        </p>
+      </div>
+    )
+  }
 
   if (!order) {
     return (
@@ -146,9 +208,12 @@ export default function OrderConfirmation() {
         </span>
         <h1 className="text-2xl font-extrabold text-ink">No encontramos ese pedido</h1>
         <p className="text-sm leading-relaxed text-muted">
-          Revisa el código del pedido o consulta tu historial desde la sección de
-          seguimiento.
+          Revisa el enlace de la confirmación o consulta tu historial desde la
+          sección de seguimiento.
         </p>
+        {error && (
+          <p className="text-xs font-semibold text-brand">{error}</p>
+        )}
         <div className="flex flex-wrap justify-center gap-2">
           <Link
             to="/seguimiento"
@@ -167,12 +232,18 @@ export default function OrderConfirmation() {
     )
   }
 
+  const estimate =
+    waitInfo?.tiempoEstimadoMin != null
+      ? `~${waitInfo.tiempoEstimadoMin} min`
+      : order.tiempoEstimado ?? null
   const firstName = order.clienteNombre?.trim().split(/\s+/)[0]
   const statusLabel = ORDER_STATUS_LABELS[order.estado] ?? order.estado
+  const progress =
+    ((getStatusIndex(order.estado) + 1) / ORDER_FLOW.length) * 100
 
   return (
     <>
-      <ReceiptPrint order={order} />
+      <ReceiptPrint order={order} estimate={estimate} />
       <div className="mx-auto max-w-5xl px-4 py-7 sm:px-6 sm:py-10 lg:px-10 print:hidden">
         <section className="relative overflow-hidden rounded-3xl bg-ink px-6 py-8 text-white sm:px-9 sm:py-10">
         <div
@@ -194,7 +265,9 @@ export default function OrderConfirmation() {
               <IconCheck className="h-5 w-5" />
             </span>
             <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em]">
-              {isNew ? 'Pedido confirmado' : `Pedido ${order.id}`}
+              {isNew
+                ? `Pedido confirmado · ${order.folio ?? getFolio(order)}`
+                : `Pedido ${order.folio ?? getFolio(order)}`}
             </span>
             <span className="rounded-full bg-brand px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em]">
               {statusLabel}
@@ -204,7 +277,7 @@ export default function OrderConfirmation() {
           <h1 className="mt-5 max-w-2xl text-3xl font-extrabold tracking-tight sm:text-4xl">
             {isNew
               ? `¡Gracias${firstName ? `, ${firstName}` : ''}! Tu pizza ya está en la fila.`
-              : `Tu pedido ${order.id}`}
+              : `Tu pedido ${order.folio ?? getFolio(order)}`}
           </h1>
           <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/70">
             {isNew
@@ -215,7 +288,7 @@ export default function OrderConfirmation() {
           <div className="mt-6 flex flex-wrap gap-2.5">
             <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-2 text-xs font-semibold">
               <IconClock className="h-4 w-4 text-white/60" />
-              Listo en {order.tiempoEstimado ?? '25–35 min'}
+              Listo en {estimate ?? 'unos minutos'}
             </span>
             <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-2 text-xs font-semibold">
               <IconBag className="h-4 w-4 text-white/60" />
@@ -268,6 +341,26 @@ export default function OrderConfirmation() {
             <div className="mt-4">
               <OrderStatusTimeline estado={order.estado} />
             </div>
+            <div className="mt-4 border-t border-line pt-3">
+              <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted">
+                <span>Progreso</span>
+                <span>{Math.round(progress)}%</span>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-wash">
+                <div
+                  className="h-full rounded-full bg-brand transition-all duration-700"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              {waitInfo?.pedidosActivos != null && (
+                <p className="mt-2 text-[10px] text-muted">
+                  {waitInfo.pedidosActivos}{' '}
+                  {waitInfo.pedidosActivos === 1
+                    ? 'pedido activo en la pizzería'
+                    : 'pedidos activos en la pizzería'}
+                </p>
+              )}
+            </div>
           </section>
 
           <section className="rounded-2xl border border-line bg-paper p-5">
@@ -296,8 +389,9 @@ export default function OrderConfirmation() {
           <div className="flex items-start gap-2.5 rounded-xl border border-line bg-wash/60 p-4">
             <IconShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-open" />
             <p className="text-[11px] leading-relaxed text-muted">
-              Este pedido es una demostración. El pago no se procesó y los datos
-              mostrados son de ejemplo.
+              {IS_MOCK
+                ? 'Este pedido es una demostración. El pago no se procesó y los datos mostrados son de ejemplo.'
+                : 'Pago simulado. No se procesó ningún cargo real ni se guardaron datos de tarjeta.'}
             </p>
           </div>
         </div>

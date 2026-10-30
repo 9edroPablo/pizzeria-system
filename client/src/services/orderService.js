@@ -1,10 +1,15 @@
 import { getDemoOrder, getDemoOrders } from '../data/demoOrders.js'
-import { ORDER_FLOW, ORDER_STATUS, getStatusIndex } from '../context/orderStatus.js'
-import { apiFetch } from './api.js'
+import { ORDER_STATUS } from '../context/orderStatus.js'
+import { saveCustomer } from './customerService.js'
+import http from './http.js'
 import { IS_MOCK } from './dataSource.js'
 
 const ORDERS_KEY = 'forno:pedidos'
-const SIMULATION_STEP_MS = 40 * 1000
+const MONGO_ID = /^[a-f0-9]{24}$/i
+
+export function isMongoOrderId(id) {
+  return MONGO_ID.test(String(id ?? '').trim())
+}
 
 function readStoredOrders() {
   try {
@@ -24,6 +29,25 @@ function writeStoredOrders(orders) {
   }
 }
 
+function upsertStoredOrder(order) {
+  if (!order?.id) return
+  const rest = readStoredOrders().filter(
+    (stored) =>
+      stored.id !== order.id && (IS_MOCK || isMongoOrderId(stored.id)),
+  )
+  writeStoredOrders([order, ...rest])
+}
+
+// Folio visible: últimos 4 caracteres del _id de Mongo. El ID completo se
+// conserva aparte porque es el que usan las rutas /api/orders/:id.
+export function getFolio(order) {
+  if (order?.folio) return order.folio
+  const id = String(order?._id ?? order?.id ?? '').trim()
+  if (!id) return '—'
+  if (/^FF-/i.test(id)) return id.toUpperCase()
+  return `#${id.slice(-4).toUpperCase()}`
+}
+
 function generateOrderId() {
   const used = new Set(readStoredOrders().map((order) => order.id))
   let id
@@ -31,21 +55,6 @@ function generateOrderId() {
     id = `FF-${Math.floor(1000 + Math.random() * 9000)}`
   } while (used.has(id))
   return id
-}
-
-function applySimulation(order) {
-  if (!IS_MOCK || !order.simulado || order.estadoManual) return order
-
-  const created = new Date(order.creadoEn).getTime()
-  if (Number.isNaN(created)) return order
-
-  const elapsed = Math.max(0, Date.now() - created)
-  const step = Math.min(
-    ORDER_FLOW.length - 1,
-    Math.floor(elapsed / SIMULATION_STEP_MS),
-  )
-
-  return { ...order, estado: ORDER_FLOW[step] }
 }
 
 function sortOrders(orders) {
@@ -62,25 +71,45 @@ function uniqueById(orders) {
   return [...map.values()]
 }
 
-export function getOrders({ includeDemo = IS_MOCK } = {}) {
+function storedForCurrentSource() {
   const stored = readStoredOrders()
-  const orders = includeDemo ? [...stored, ...getDemoOrders()] : stored
-  return sortOrders(uniqueById(orders)).map(applySimulation)
+  // En modo API ignoramos pedidos mock viejos que hayan quedado guardados.
+  return IS_MOCK ? stored : stored.filter((order) => isMongoOrderId(order.id))
+}
+
+export function getOrders({ includeDemo = IS_MOCK } = {}) {
+  const stored = storedForCurrentSource()
+  const demo = includeDemo
+    ? getDemoOrders().map((order) => ({ ...order, folio: getFolio(order) }))
+    : []
+  return sortOrders(uniqueById([...stored, ...demo]))
 }
 
 export function getOrder(id) {
   if (!id) return null
-  const normalizedId = String(id).trim().toLowerCase()
-  const stored = readStoredOrders().find(
-    (order) => order.id.toLowerCase() === normalizedId,
-  )
+
+  const raw = String(id).trim()
+  const normalizedId = raw.toLowerCase()
+  const normalizedFolio = (raw.startsWith('#') ? raw : `#${raw}`).toLowerCase()
+
+  const stored = storedForCurrentSource().find((order) => {
+    const orderId = String(order.id ?? '').toLowerCase()
+    const orderFolio = getFolio(order).toLowerCase()
+    return (
+      orderId === normalizedId ||
+      orderFolio === normalizedFolio ||
+      orderFolio === normalizedId
+    )
+  })
+
   const demo = IS_MOCK
     ? getDemoOrder(normalizedId) ??
-      getDemoOrders().find((order) => order.id.toLowerCase() === normalizedId)
+      getDemoOrders().find(
+        (order) => order.id.toLowerCase() === normalizedId,
+      )
     : null
-  const order = stored ?? demo ?? null
 
-  return order ? applySimulation(order) : null
+  return stored ?? demo ?? null
 }
 
 export function getLatestOrder() {
@@ -89,11 +118,12 @@ export function getLatestOrder() {
 
 function buildLocalOrder(input, id) {
   const items = input.items.map((item) => ({
-    productoId: item.productoId ?? null,
+    productoId: item.productoId ?? item.id ?? null,
     nombre: item.nombre,
     linea: item.linea ?? '',
     tamano: item.tamano ?? '',
     topping: item.topping ?? 'pepperoni',
+    imagen: item.imagen ?? '',
     cantidad: Number(item.cantidad) || 1,
     precio: Number(item.precio) || 0,
   }))
@@ -105,49 +135,86 @@ function buildLocalOrder(input, id) {
 
   return {
     id,
+    folio: getFolio({ id }),
     estado: ORDER_STATUS.PENDIENTE,
     pagado: input.metodoPago === 'ANTICIPADO',
     metodoPago: input.metodoPago,
     creadoEn: now,
     actualizadoEn: now,
-    tiempoEstimado: input.tiempoEstimado ?? '25–35 min',
+    tiempoEstimado: input.tiempoEstimado ?? '',
     clienteNombre: input.clienteNombre ?? '',
-    clienteCorreo: input.clienteCorreo,
+    clienteCorreo: String(input.clienteCorreo ?? '').trim().toLowerCase(),
     clienteTelefono: input.clienteTelefono ?? '',
     notas: input.notas ?? '',
     items,
     subtotal: total,
     total,
-    simulado: true,
     origen: 'mock',
   }
 }
 
 function normalizeApiOrder(payload, fallback) {
-  const raw = payload?.pedido ?? payload?.order ?? payload?.data ?? payload
-  const id = raw?.codigo ?? raw?._id ?? raw?.id ?? fallback.id
-  const estado = raw?.estado ?? fallback.estado
-  const items = Array.isArray(raw?.items)
-    ? raw.items.map((item) => ({
-        productoId: item.producto_id ?? item.productoId ?? null,
-        nombre: item.nombre ?? 'Pizza',
-        linea: item.linea ?? '',
-        tamano: item.tamano ?? '',
-        topping: item.topping ?? 'pepperoni',
-        cantidad: Number(item.cantidad) || 1,
-        precio: Number(item.precio) || 0,
-      }))
-    : fallback.items
+  const base = fallback ?? {}
+  const raw = payload?.pedido ?? payload?.order ?? payload?.data ?? payload ?? {}
+  const previousItems = Array.isArray(base.items) ? base.items : []
+
+  const items = Array.isArray(raw.items)
+    ? raw.items.map((item, index) => {
+        const previous =
+          previousItems.find(
+            (candidate) => candidate.nombre === item.nombre,
+          ) ??
+          previousItems[index] ??
+          {}
+
+        return {
+          productoId:
+            item.producto_id ??
+            item.productoId ??
+            previous.productoId ??
+            null,
+          nombre: item.nombre ?? previous.nombre ?? 'Pizza',
+          linea: item.linea ?? previous.linea ?? '',
+          tamano: item.tamano ?? previous.tamano ?? '',
+          topping: item.topping ?? previous.topping ?? 'pepperoni',
+          imagen: item.imagen ?? previous.imagen ?? '',
+          cantidad: Number(item.cantidad) || previous.cantidad || 1,
+          precio: Number(item.precio) || 0,
+        }
+      })
+    : previousItems
+
+  const id = String(raw._id ?? raw.id ?? base.id ?? '')
+  const total = Number(raw.total ?? base.total ?? 0)
+  const subtotal = Number(raw.subtotal ?? total)
+  const creadoEn =
+    raw.createdAt ?? raw.creadoEn ?? base.creadoEn ?? new Date().toISOString()
+  const actualizadoEn = raw.updatedAt ?? raw.actualizadoEn ?? creadoEn
 
   return {
-    ...fallback,
+    ...base,
     ...raw,
-    id: String(id),
-    estado,
+    id,
+    folio: raw.folio ?? getFolio({ ...raw, id }),
+    estado: raw.estado ?? base.estado ?? ORDER_STATUS.PENDIENTE,
+    pagado: raw.pagado ?? base.pagado ?? false,
+    metodoPago: raw.metodo_pago ?? raw.metodoPago ?? base.metodoPago ?? 'TIENDA',
+    creadoEn,
+    actualizadoEn,
+    clienteNombre:
+      raw.cliente_nombre ?? raw.clienteNombre ?? base.clienteNombre ?? '',
+    clienteCorreo:
+      raw.cliente_correo ?? raw.clienteCorreo ?? base.clienteCorreo ?? '',
+    clienteTelefono:
+      raw.cliente_telefono ??
+      raw.clienteTelefono ??
+      base.clienteTelefono ??
+      '',
+    notas: raw.notas ?? base.notas ?? '',
     items,
-    total: Number(raw?.total ?? fallback.total),
-    subtotal: Number(raw?.subtotal ?? fallback.subtotal),
-    simulado: false,
+    subtotal: Number.isFinite(subtotal) ? subtotal : total,
+    total: Number.isFinite(total) ? total : 0,
+    tiempoEstimado: raw.tiempoEstimado ?? base.tiempoEstimado ?? '',
     origen: 'api',
   }
 }
@@ -161,50 +228,83 @@ export async function createOrder(input) {
       nombre: item.nombre,
       cantidad: item.cantidad,
       precio: item.precio,
-      ...(item.productoId && /^[a-f0-9]{24}$/i.test(item.productoId)
+      ...(isMongoOrderId(item.productoId)
         ? { producto_id: item.productoId }
         : {}),
     }))
 
-    const payload = await apiFetch('/orders', {
-      method: 'POST',
-      body: JSON.stringify({
-        cliente_correo: localOrder.clienteCorreo,
-        items: apiItems,
-        metodo_pago: localOrder.metodoPago,
-        total: localOrder.total,
-      }),
+    const { data } = await http.post('/orders', {
+      cliente_correo: localOrder.clienteCorreo,
+      ...(isMongoOrderId(input.usuarioId)
+        ? { usuario_id: input.usuarioId }
+        : {}),
+      items: apiItems,
+      metodo_pago: localOrder.metodoPago,
+      total: localOrder.total,
     })
 
-    const order = normalizeApiOrder(payload, localOrder)
-    writeStoredOrders([order, ...readStoredOrders()])
+    const order = normalizeApiOrder(data, localOrder)
+    upsertStoredOrder(order)
+    saveCustomer({
+      nombre: localOrder.clienteNombre,
+      correo: localOrder.clienteCorreo,
+      telefono: localOrder.clienteTelefono,
+    })
     return order
   }
 
   await new Promise((resolve) => setTimeout(resolve, 650))
-  writeStoredOrders([localOrder, ...readStoredOrders()])
+  upsertStoredOrder(localOrder)
+  saveCustomer({
+    nombre: localOrder.clienteNombre,
+    correo: localOrder.clienteCorreo,
+    telefono: localOrder.clienteTelefono,
+  })
   return localOrder
 }
 
-export function advanceOrderStatus(id) {
-  const stored = readStoredOrders()
-  const index = stored.findIndex(
-    (order) => order.id.toLowerCase() === String(id).toLowerCase(),
-  )
-  if (index === -1) return null
+// GET /api/orders/:id. El snapshot local creado por el checkout se usa como
+// respaldo cuando el pedido no existe en el servidor, pero los errores de red
+// o del servidor se propagan para que la pantalla pueda avisar.
+export async function fetchOrderById(id) {
+  if (!id) return null
 
-  const current = applySimulation(stored[index])
-  const nextStatus =
-    ORDER_FLOW[Math.min(getStatusIndex(current.estado) + 1, ORDER_FLOW.length - 1)]
-  const updated = {
-    ...stored[index],
-    estado: nextStatus,
-    estadoManual: true,
-    actualizadoEn: new Date().toISOString(),
+  const local = getOrder(id)
+  if (IS_MOCK) return local
+
+  const apiId = isMongoOrderId(id) ? String(id).trim() : local?.id
+  if (!isMongoOrderId(apiId)) return local
+
+  try {
+    const { data } = await http.get(`/orders/${apiId}`)
+    const order = normalizeApiOrder(data, local ?? {})
+    upsertStoredOrder(order)
+    return order
+  } catch (error) {
+    const status = error?.response?.status
+    if (status === 400 || status === 404) return local
+    throw error
   }
-  stored[index] = updated
-  writeStoredOrders(stored)
-  return updated
+}
+
+// GET /api/orders/wait-time -> { pedidosActivos, tiempoEstimadoMin, tienda_abierta }
+export async function getWaitTime() {
+  if (IS_MOCK) {
+    return { pedidosActivos: 0, tiempoEstimadoMin: 30, tiendaAbierta: null }
+  }
+
+  const { data } = await http.get('/orders/wait-time')
+  const pedidosActivos = Number(data?.pedidosActivos)
+  const tiempoEstimadoMin = Number(data?.tiempoEstimadoMin)
+
+  return {
+    pedidosActivos: Number.isFinite(pedidosActivos) ? pedidosActivos : null,
+    tiempoEstimadoMin: Number.isFinite(tiempoEstimadoMin)
+      ? tiempoEstimadoMin
+      : null,
+    tiendaAbierta:
+      typeof data?.tienda_abierta === 'boolean' ? data.tienda_abierta : null,
+  }
 }
 
 export function resetLocalOrders() {

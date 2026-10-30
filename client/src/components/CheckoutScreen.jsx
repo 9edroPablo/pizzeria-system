@@ -5,6 +5,10 @@ import { useStore } from '../context/StoreContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
 import { DEMO_USER } from '../data/demoUser.js'
 import { STORE } from '../data/store.js'
+import { registerCustomer } from '../services/authService.js'
+import { getCustomer } from '../services/customerService.js'
+import { IS_MOCK } from '../services/dataSource.js'
+import { getErrorMessage } from '../services/http.js'
 import { createOrder } from '../services/orderService.js'
 import { formatPrice } from '../services/format.js'
 import Logo from './Logo.jsx'
@@ -60,19 +64,20 @@ export default function CheckoutScreen() {
   const { abierta, tiempoEspera, loading: storeLoading } = useStore()
   const { notify } = useToast()
   const navigate = useNavigate()
+  const savedCustomer = useMemo(() => getCustomer(), [])
 
-  const [form, setForm] = useState({
-    nombre: DEMO_USER.nombre,
-    correo: DEMO_USER.correo,
-    telefono: DEMO_USER.telefono,
+  const [form, setForm] = useState(() => ({
+    nombre: IS_MOCK ? DEMO_USER.nombre : savedCustomer?.nombre ?? '',
+    correo: IS_MOCK ? DEMO_USER.correo : savedCustomer?.correo ?? '',
+    telefono: IS_MOCK ? DEMO_USER.telefono : savedCustomer?.telefono ?? '',
     notas: '',
     metodoPago: 'ANTICIPADO',
     cardNumber: '4242 4242 4242 4242',
-    cardName: DEMO_USER.nombre,
+    cardName: IS_MOCK ? DEMO_USER.nombre : savedCustomer?.nombre ?? '',
     expiry: '12/30',
     cvc: '123',
     acepta: false,
-  })
+  }))
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
@@ -98,7 +103,7 @@ export default function CheckoutScreen() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.correo.trim())) {
       next.correo = 'Escribe un correo válido.'
     }
-    if (form.telefono.replace(/\D/g, '').length < 10) {
+    if (IS_MOCK && form.telefono.replace(/\D/g, '').length < 10) {
       next.telefono = 'Escribe un teléfono de al menos 10 dígitos.'
     }
     if (form.metodoPago === 'ANTICIPADO') {
@@ -129,6 +134,10 @@ export default function CheckoutScreen() {
       setSubmitError('Tu carrito está vacío. Agrega una pizza antes de continuar.')
       return
     }
+    if (storeLoading) {
+      setSubmitError('Estamos consultando el estado de la tienda. Intenta de nuevo en un momento.')
+      return
+    }
     if (!abierta) {
       setSubmitError('La tienda está cerrada. No podemos registrar el pedido ahora.')
       return
@@ -141,12 +150,19 @@ export default function CheckoutScreen() {
 
     setSubmitting(true)
     try {
+      // En API primero identificamos/registramos el correo; después creamos el
+      // pedido. En modo mock no hay backend que registrar.
+      const customer = IS_MOCK
+        ? null
+        : await registerCustomer({ correo: form.correo.trim() })
+
       const order = await createOrder({
+        usuarioId: IS_MOCK ? DEMO_USER.id : customer?._id,
         clienteNombre: form.nombre.trim(),
         clienteCorreo: form.correo.trim(),
-        clienteTelefono: form.telefono.trim(),
+        clienteTelefono: IS_MOCK ? form.telefono.trim() : '',
         metodoPago: form.metodoPago,
-        notas: form.notas.trim(),
+        notas: IS_MOCK ? form.notas.trim() : '',
         tiempoEstimado: tiempoEspera,
         items,
       })
@@ -154,11 +170,7 @@ export default function CheckoutScreen() {
       notify('Pedido registrado. ¡Gracias por elegir Forno & Farina!')
       navigate(`/pedido/${order.id}?nuevo=1`, { replace: true })
     } catch (error) {
-      setSubmitError(
-        error instanceof Error
-          ? error.message
-          : 'No se pudo registrar el pedido. Intenta de nuevo.',
-      )
+      setSubmitError(getErrorMessage(error))
     } finally {
       setSubmitting(false)
     }
@@ -236,7 +248,7 @@ export default function CheckoutScreen() {
           </div>
           <span className="inline-flex w-fit items-center gap-2 rounded-full bg-brand-soft px-3 py-1.5 text-[11px] font-bold text-brand">
             <IconShieldCheck className="h-3.5 w-3.5" />
-            Pago de demostración
+            Pago simulado
           </span>
         </div>
 
@@ -269,36 +281,40 @@ export default function CheckoutScreen() {
               </div>
 
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                <Field id="nombre" label="Nombre completo" error={errors.nombre}>
-                  <input
-                    id="nombre"
-                    type="text"
-                    autoComplete="name"
-                    value={form.nombre}
-                    onChange={update('nombre')}
-                    aria-invalid={Boolean(errors.nombre)}
-                    className={inputClass}
-                    placeholder="Nombre de quien recoge"
-                  />
-                </Field>
-                <Field id="telefono" label="Teléfono" error={errors.telefono}>
-                  <input
-                    id="telefono"
-                    type="tel"
-                    autoComplete="tel"
-                    value={form.telefono}
-                    onChange={update('telefono')}
-                    aria-invalid={Boolean(errors.telefono)}
-                    className={inputClass}
-                    placeholder="55 0000 0000"
-                  />
-                </Field>
+                <div className={IS_MOCK ? '' : 'sm:col-span-2'}>
+                  <Field id="nombre" label="Nombre completo" error={errors.nombre}>
+                    <input
+                      id="nombre"
+                      type="text"
+                      autoComplete="name"
+                      value={form.nombre}
+                      onChange={update('nombre')}
+                      aria-invalid={Boolean(errors.nombre)}
+                      className={inputClass}
+                      placeholder="Nombre de quien recoge"
+                    />
+                  </Field>
+                </div>
+                {IS_MOCK && (
+                  <Field id="telefono" label="Teléfono" error={errors.telefono}>
+                    <input
+                      id="telefono"
+                      type="tel"
+                      autoComplete="tel"
+                      value={form.telefono}
+                      onChange={update('telefono')}
+                      aria-invalid={Boolean(errors.telefono)}
+                      className={inputClass}
+                      placeholder="55 0000 0000"
+                    />
+                  </Field>
+                )}
                 <div className="sm:col-span-2">
                   <Field
                     id="correo"
                     label="Correo electrónico"
                     error={errors.correo}
-                    hint="Enviaremos la confirmación a este correo (envío simulado)."
+                    hint="Registraremos tu pedido con este correo."
                   >
                     <input
                       id="correo"
@@ -465,36 +481,38 @@ export default function CheckoutScreen() {
               )}
             </section>
 
-            <section className="rounded-2xl border border-line bg-paper p-5 sm:p-6">
-              <div className="flex items-start gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-xs font-extrabold text-white">
-                  3
-                </span>
-                <div>
-                  <h2 className="text-base font-extrabold text-ink">Notas del pedido</h2>
-                  <p className="mt-0.5 text-xs text-muted">
-                    Opcional. Alergias, indicaciones o algún detalle para la cocina.
+            {IS_MOCK && (
+              <section className="rounded-2xl border border-line bg-paper p-5 sm:p-6">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-xs font-extrabold text-white">
+                    3
+                  </span>
+                  <div>
+                    <h2 className="text-base font-extrabold text-ink">Notas del pedido</h2>
+                    <p className="mt-0.5 text-xs text-muted">
+                      Opcional. Alergias, indicaciones o algún detalle para la cocina.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <label htmlFor="notas" className="sr-only">
+                    Notas del pedido
+                  </label>
+                  <textarea
+                    id="notas"
+                    rows="3"
+                    maxLength="240"
+                    value={form.notas}
+                    onChange={update('notas')}
+                    className={`${inputClass} resize-none`}
+                    placeholder="Ej. sin albahaca, cortar en 8 rebanadas…"
+                  />
+                  <p className="mt-1 text-right text-[10px] text-muted">
+                    {form.notas.length}/240
                   </p>
                 </div>
-              </div>
-              <div className="mt-4">
-                <label htmlFor="notas" className="sr-only">
-                  Notas del pedido
-                </label>
-                <textarea
-                  id="notas"
-                  rows="3"
-                  maxLength="240"
-                  value={form.notas}
-                  onChange={update('notas')}
-                  className={`${inputClass} resize-none`}
-                  placeholder="Ej. sin albahaca, cortar en 8 rebanadas…"
-                />
-                <p className="mt-1 text-right text-[10px] text-muted">
-                  {form.notas.length}/240
-                </p>
-              </div>
-            </section>
+              </section>
+            )}
 
             <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line bg-paper p-4">
               <input
@@ -552,6 +570,7 @@ export default function CheckoutScreen() {
                     <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-wash">
                       <PizzaImage
                         topping={item.topping}
+                        src={item.imagen}
                         alt={item.nombre}
                         className="h-full w-full"
                       />
@@ -602,7 +621,7 @@ export default function CheckoutScreen() {
                 <div className="mt-3 flex items-center gap-2.5">
                   <IconClock className="h-4 w-4 shrink-0 text-brand" />
                   <p className="text-[11px] text-muted">
-                    Listo en {tiempoEspera ?? '25–35 min'}
+                    Listo en {tiempoEspera ?? 'unos minutos'}
                   </p>
                 </div>
               </div>
@@ -611,11 +630,13 @@ export default function CheckoutScreen() {
                 <button
                   type="submit"
                   form="checkout-form"
-                  disabled={submitting || !abierta}
+                  disabled={submitting || storeLoading || !abierta}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3.5 text-sm font-bold text-white transition hover:bg-brand-dark active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-muted"
                 >
                   {submitting ? (
                     'Registrando pedido…'
+                  ) : storeLoading ? (
+                    'Consultando tienda…'
                   ) : !abierta ? (
                     'Tienda cerrada'
                   ) : (
@@ -645,10 +666,16 @@ export default function CheckoutScreen() {
           <button
             type="submit"
             form="checkout-form"
-            disabled={submitting || !abierta}
+            disabled={submitting || storeLoading || !abierta}
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:bg-muted"
           >
-            {submitting ? 'Registrando…' : 'Confirmar pedido'}
+            {submitting
+              ? 'Registrando…'
+              : storeLoading
+                ? 'Consultando tienda…'
+                : !abierta
+                  ? 'Tienda cerrada'
+                  : 'Confirmar pedido'}
           </button>
         </div>
       </div>

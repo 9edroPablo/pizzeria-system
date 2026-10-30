@@ -126,7 +126,7 @@ export default function CartDrawer() {
                   <p className="text-xs font-bold text-ink">Recoger en la pizzería</p>
                   <p className="mt-0.5 text-xs leading-relaxed text-muted">
                     Av. Álvaro Obregón 168, Roma Norte. Listo en{' '}
-                    {tiempoEspera ?? '25–35 min'}.
+                    {tiempoEspera ?? 'unos minutos'}.
                   </p>
                 </div>
               </div>
@@ -164,7 +164,7 @@ export default function CartDrawer() {
             </button>
             <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] font-medium text-muted">
               <IconShieldCheck className="h-3.5 w-3.5" />
-              Pago simulado y datos protegidos en esta demostración
+              Pago simulado. No se guardan datos de tarjeta.
             </p>
           </footer>
         )}

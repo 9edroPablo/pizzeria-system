@@ -7,6 +7,9 @@ import {
   useState,
 } from 'react'
 import { STORE, STORE_HOURS } from '../data/store.js'
+import { IS_MOCK } from '../services/dataSource.js'
+import { getErrorMessage } from '../services/http.js'
+import { getWaitTime } from '../services/orderService.js'
 import {
   getClosedOverride,
   getStoreStatus,
@@ -16,12 +19,16 @@ import {
 const StoreContext = createContext(null)
 
 const INITIAL_STATUS = {
-  abierta: true,
-  tiempoEspera: STORE.tiempoEspera,
+  // Fail-closed: no permitimos compras hasta que el backend confirme que
+  // la tienda está abierta.
+  abierta: false,
+  tiempoEspera: IS_MOCK ? STORE.tiempoEspera : null,
+  tiempoEstimadoMin: null,
+  pedidosActivos: null,
   mensaje: '',
   horario: STORE_HOURS,
   tienda: STORE,
-  origen: 'mock',
+  origen: IS_MOCK ? 'mock' : 'api',
 }
 
 export function StoreProvider({ children }) {
@@ -29,21 +36,41 @@ export function StoreProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [demoClosed, setDemoClosedState] = useState(
-    () => getClosedOverride() === true,
+    () => IS_MOCK && getClosedOverride() === true,
   )
 
   const refresh = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true)
     try {
-      const next = await getStoreStatus()
+      const [storeResult, waitResult] = await Promise.allSettled([
+        getStoreStatus(),
+        getWaitTime(),
+      ])
+
+      if (storeResult.status === 'rejected') throw storeResult.reason
+
+      const next = { ...storeResult.value }
+      if (waitResult.status === 'fulfilled') {
+        next.tiempoEstimadoMin = waitResult.value.tiempoEstimadoMin
+        next.pedidosActivos = waitResult.value.pedidosActivos
+        if (next.abierta && waitResult.value.tiempoEstimadoMin != null) {
+          next.tiempoEspera = `~${waitResult.value.tiempoEstimadoMin} min`
+        }
+      }
+
       setStatus(next)
       setError(null)
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'No se pudo consultar el estado de la tienda.',
-      )
+      const message = getErrorMessage(requestError)
+      setError(message)
+      setStatus((current) => ({
+        ...current,
+        abierta: false,
+        tiempoEspera: null,
+        mensaje:
+          'No pudimos confirmar que la tienda esté abierta. Por seguridad, los pedidos están deshabilitados.',
+        origen: IS_MOCK ? 'mock' : 'api',
+      }))
     } finally {
       if (!silent) setLoading(false)
     }
@@ -52,31 +79,38 @@ export function StoreProvider({ children }) {
   useEffect(() => {
     let active = true
 
-    getStoreStatus()
-      .then((next) => {
-        if (!active) return
-        setStatus(next)
-        setError(null)
-      })
-      .catch((requestError) => {
-        if (!active) return
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'No se pudo consultar el estado de la tienda.',
-        )
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
+    const load = async () => {
+      if (active) await refresh()
+    }
+
+    const refreshSilently = () => {
+      if (active) refresh({ silent: true })
+    }
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshSilently()
+    }
+
+    load()
+    const interval = window.setInterval(refreshSilently, 15000)
+    window.addEventListener('focus', refreshSilently)
+    document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
       active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refreshSilently)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [])
+  }, [refresh])
 
   const setDemoClosed = useCallback(
     async (closed) => {
+      if (!IS_MOCK) {
+        throw new Error(
+          'El estado de la tienda solo se cambia desde el módulo de Administración.',
+        )
+      }
       setClosedOverride(closed)
       setDemoClosedState(closed)
       await refresh()

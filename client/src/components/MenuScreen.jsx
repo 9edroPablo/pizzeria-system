@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../context/StoreContext.jsx'
 import { useCart } from '../context/CartContext.jsx'
+import { getErrorMessage } from '../services/http.js'
 import { getMenu } from '../services/menuService.js'
 import AllergyBanner from './AllergyBanner.jsx'
 import ClosedStoreBanner from './ClosedStoreBanner.jsx'
@@ -28,13 +29,7 @@ export default function MenuScreen() {
         const menu = await getMenu()
         if (active) setPizzas(menu)
       } catch (requestError) {
-        if (active) {
-          setError(
-            requestError instanceof Error
-              ? requestError.message
-              : 'No se pudo cargar el menú.',
-          )
-        }
+        if (active) setError(getErrorMessage(requestError))
       } finally {
         if (active) setLoading(false)
       }
@@ -47,7 +42,7 @@ export default function MenuScreen() {
   }, [reloadKey])
 
   const lineas = useMemo(
-    () => ['Todas', ...new Set(pizzas.map((pizza) => pizza.linea))],
+    () => [...new Set(pizzas.map((pizza) => pizza.linea).filter(Boolean))],
     [pizzas],
   )
 
@@ -80,7 +75,7 @@ export default function MenuScreen() {
 
           {!loading && lineas.length > 1 && (
             <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-              {lineas.map((item) => (
+              {['Todas', ...lineas].map((item) => (
                 <button
                   key={item}
                   type="button"
